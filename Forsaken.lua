@@ -29,8 +29,8 @@ local Itoshi = {
             Reach = {Enabled = false, Multiplier = 2}
         },
         Movement = {
-            Fly = {Enabled = false, Speed = 1, Vertical = 1}, 
-            Speed = {Enabled = false, Val = 0.5},
+            Fly = {Enabled = false, Speed = 2, Vertical = 1}, 
+            Speed = {Enabled = false, Val = 100, Mode = "Velocity"}, -- Defaulted to Velocity for speed
             NoClip = {Enabled = false},
         },
         Visuals = {
@@ -75,14 +75,19 @@ function KeySystem.Run()
     S.Name = "ItoshiAuth"
     
     local F = Instance.new("Frame")
-    F.Size = UDim2.new(0, 300, 0, 150)
-    F.Position = UDim2.new(0.5, -150, 0.5, -75)
+    F.Size = UDim2.new(0, 350, 0, 180)
+    F.Position = UDim2.new(0.5, -175, 0.5, -90)
     F.BackgroundColor3 = Color3.fromRGB(8, 8, 10)
     F.BorderSizePixel = 0
     F.Parent = S
     
+    local G = Instance.new("UIGradient")
+    G.Color = ColorSequence.new(Color3.fromRGB(15,15,20), Color3.fromRGB(5,5,8))
+    G.Rotation = 45
+    G.Parent = F
+    
     local T = Instance.new("TextLabel")
-    T.Text = "ITOSHI HUB"
+    T.Text = "ITOSHI HUB | SPEED DEMON"
     T.Size = UDim2.new(1, 0, 0.2, 0)
     T.BackgroundTransparency = 1
     T.TextColor3 = Color3.fromRGB(255, 0, 0)
@@ -137,7 +142,7 @@ function MobileManager.Toggle()
     
     local function CreateBtn(Text, Pos, DownFunc, UpFunc)
         local B = Instance.new("TextButton")
-        B.Size = UDim2.new(0, 50, 0, 50) -- Smaller buttons for performance/screen space
+        B.Size = UDim2.new(0, 50, 0, 50)
         B.Position = Pos
         B.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         B.BackgroundTransparency = 0.6
@@ -185,8 +190,8 @@ function Combat.GetTargets()
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then table.insert(T, p.Character) end
     end
-    -- Reduced workspace scan frequency for mobile optimization
-    if tick() % 1 < 0.1 then
+    -- Scan NPCs periodically for mobile optimization
+    if tick() % 0.5 < 0.1 then
         for _, v in pairs(Workspace:GetDescendants()) do
             if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(v) then
                 table.insert(T, v)
@@ -196,10 +201,61 @@ function Combat.GetTargets()
     return T
 end
 
+function Combat.GetClosest()
+    local C, M = nil, math.huge
+    local Mouse = UserInputService:GetMouseLocation()
+    for _, Char in pairs(Combat.GetTargets()) do
+        local Part = Char:FindFirstChild(Itoshi.Settings.Combat.SilentAim.Part)
+        if Part then
+            local Pos, Vis = Camera:WorldToViewportPoint(Part.Position)
+            if Vis then
+                local D = Vector.Mag(Vector2.new(Pos.X, Pos.Y), Mouse)
+                if D < M and D <= Itoshi.Settings.Combat.SilentAim.FOV then
+                    M = D
+                    C = Part
+                end
+            end
+        end
+    end
+    return C
+end
+
+function Combat.IsAttacking(Model)
+    if not Model then return false end
+    local Anim = Model:FindFirstChild("Humanoid") and Model.Humanoid:FindFirstChild("Animator")
+    if not Anim then return false end
+    for _, T in pairs(Anim:GetPlayingAnimationTracks()) do
+        local N = T.Name:lower()
+        for _, K in pairs(Itoshi.Keywords) do
+            if string.find(N, K) and (T.Priority == Enum.AnimationPriority.Action or T.Priority == Enum.AnimationPriority.Action2 or T.Priority == Enum.AnimationPriority.Movement) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 function Combat.Update()
-    -- Optimized Combat Loop (Runs on RenderStepped but with logic gates)
     if Itoshi.Settings.Combat.SilentAim.Enabled then
-        -- Logic here (Simplified for performance)
+        Itoshi.State.Target = Combat.GetClosest()
+    end
+
+    if Itoshi.Settings.Combat.KillAura.Enabled then
+        local MyRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if MyRoot and tick() - Itoshi.State.LastAttack > Itoshi.Settings.Combat.KillAura.Speed then
+            for _, Char in pairs(Combat.GetTargets()) do
+                local Root = Char:FindFirstChild("HumanoidRootPart")
+                if Root and Vector.Mag(MyRoot.Position, Root.Position) <= Itoshi.Settings.Combat.KillAura.Range then
+                    MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(Root.Position.X, MyRoot.Position.Y, Root.Position.Z))
+                    local Tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                    if Tool then Tool:Activate() end
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                    Itoshi.State.LastAttack = tick()
+                    break 
+                end
+            end
+        end
     end
 
     if Itoshi.Settings.Combat.AutoBlock.Enabled then
@@ -207,29 +263,20 @@ function Combat.Update()
         if MyRoot then
             for _, Char in pairs(Combat.GetTargets()) do
                 local KRoot = Char:FindFirstChild("HumanoidRootPart")
-                if KRoot then
-                    local D = Vector.Mag(MyRoot.Position, KRoot.Position)
-                    if D <= Itoshi.Settings.Combat.AutoBlock.Range then
-                         -- Block Logic
-                         local Anim = Char:FindFirstChild("Humanoid") and Char.Humanoid:FindFirstChild("Animator")
-                         if Anim then
-                            for _, T in pairs(Anim:GetPlayingAnimationTracks()) do
-                                for _, K in pairs(Itoshi.Keywords) do
-                                    if string.find(T.Name:lower(), K) then
-                                        if not Itoshi.State.Blocking and (tick() - Itoshi.State.LastBlock > 0.1) then
-                                            Itoshi.State.Blocking = true
-                                            Itoshi.State.LastBlock = tick()
-                                            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                                            task.delay(0.5, function() 
-                                                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-                                                Itoshi.State.Blocking = false
-                                            end)
-                                        end
-                                        break
-                                    end
-                                end
-                            end
-                         end
+                if KRoot and Vector.Mag(MyRoot.Position, KRoot.Position) <= Itoshi.Settings.Combat.AutoBlock.Range then
+                    if Combat.IsAttacking(Char) and not Itoshi.State.Blocking and (tick() - Itoshi.State.LastBlock > 0.1) then
+                        if Itoshi.Settings.Combat.AutoBlock.AutoFace then
+                            MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(KRoot.Position.X, MyRoot.Position.Y, KRoot.Position.Z))
+                        end
+                        task.wait(Itoshi.Settings.Combat.AutoBlock.Reaction)
+                        Itoshi.State.Blocking = true
+                        Itoshi.State.LastBlock = tick()
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                        task.delay(Itoshi.Settings.Combat.AutoBlock.Duration, function()
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                            Itoshi.State.Blocking = false
+                        end)
+                        break
                     end
                 end
             end
@@ -245,7 +292,6 @@ function Physics.Update(dt)
         if Hum and Root then
             Hum.PlatformStand = true
             Root.AssemblyLinearVelocity = Vector3.zero
-            Root.AssemblyAngularVelocity = Vector3.zero
             
             local CF = Camera.CFrame
             local Move = Vector3.zero
@@ -267,19 +313,64 @@ function Physics.Update(dt)
             if Itoshi.State.Input.Up or Itoshi.State.Input.MobileUp then Y = Itoshi.Settings.Movement.Fly.Vertical * 2 end
             if Itoshi.State.Input.Down or Itoshi.State.Input.MobileDown then Y = -Itoshi.Settings.Movement.Fly.Vertical * 2 end
             
-            Root.CFrame = Root.CFrame + (Move * dt * 50) 
-            Root.CFrame = Root.CFrame + (Vector3.new(0, Y, 0) * dt * 50)
+            Root.CFrame = Root.CFrame + (Move * dt * 50) + (Vector3.new(0, Y, 0) * dt * 50)
         end
     end
 
+    -- BOOSTED SPEED LOGIC
     if Itoshi.Settings.Movement.Speed.Enabled and LocalPlayer.Character and not Itoshi.Settings.Movement.Fly.Enabled then
         local Hum = LocalPlayer.Character:FindFirstChild("Humanoid")
         local Root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        
         if Hum and Root and Hum.MoveDirection.Magnitude > 0 then
-            Root.CFrame = Root.CFrame + (Hum.MoveDirection * Itoshi.Settings.Movement.Speed.Val * dt)
+            local SpeedVal = Itoshi.Settings.Movement.Speed.Val
+            
+            if Itoshi.Settings.Movement.Speed.Mode == "Velocity" then
+                -- Super Fast Sliding
+                local Dir = Hum.MoveDirection
+                Root.AssemblyLinearVelocity = Vector3.new(Dir.X * SpeedVal, Root.AssemblyLinearVelocity.Y, Dir.Z * SpeedVal)
+            
+            elseif Itoshi.Settings.Movement.Speed.Mode == "CFrame" then
+                -- Safe but can be made fast
+                Root.CFrame = Root.CFrame + (Hum.MoveDirection * (SpeedVal * 0.5) * dt * 10)
+            
+            elseif Itoshi.Settings.Movement.Speed.Mode == "WalkSpeed" then
+                -- Classic
+                Hum.WalkSpeed = SpeedVal
+            end
+        end
+    end
+    
+    if Itoshi.Settings.Killer.Enabled and LocalPlayer.Character then
+        local Target = nil
+        local MyRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local Min = math.huge
+        for _, Char in pairs(Combat.GetTargets()) do
+            local R = Char:FindFirstChild("HumanoidRootPart")
+            if R then
+                local D = Vector.Mag(MyRoot.Position, R.Position)
+                if D < Min then Min = D Target = R end
+            end
+        end
+        if Target and MyRoot then
+            if Itoshi.Settings.Killer.Magnet.Enabled then
+               MyRoot.CFrame = MyRoot.CFrame:Lerp(CFrame.new(MyRoot.Position, Target.Position), 0.1)
+               MyRoot.Position = MyRoot.Position:Lerp(Target.Position, Itoshi.Settings.Killer.Magnet.Speed * dt)
+            end
+            if Itoshi.Settings.Killer.Reach.Enabled then
+                Itoshi.State.Target = Target
+            end
         end
     end
 end
+
+RunService.Stepped:Connect(function()
+    if Itoshi.Settings.Movement.NoClip.Enabled and LocalPlayer.Character then
+        for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+        end
+    end
+end)
 
 local Hooks = {}
 function Hooks.Init()
@@ -297,7 +388,6 @@ function Hooks.Init()
         return OldNC(self, ...)
     end))
 end
-
 Hooks.Init()
 
 UserInputService.InputBegan:Connect(function(i, gp)
@@ -322,7 +412,7 @@ end)
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = "Itoshi Hub",
-    LoadingTitle = "Optimized Core...",
+    LoadingTitle = "Loading...",
     ConfigurationSaving = {Enabled = true, FolderName = "ItoshiHub", FileName = "Cfg"},
     KeySystem = false, 
 })
@@ -333,18 +423,13 @@ local TabM = Window:CreateTab("Movement", 4483362458)
 local TabV = Window:CreateTab("Visuals", 4483362458)
 local TabU = Window:CreateTab("Utility", 4483362458)
 
-TabC:CreateSection("Offensive")
 TabC:CreateToggle({Name = "Silent Aim", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.SilentAim.Enabled = v end})
 TabC:CreateToggle({Name = "Kill Aura", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.KillAura.Enabled = v end})
-TabC:CreateToggle({Name = "Backtrack", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.Backtrack.Enabled = v end})
-
-TabC:CreateSection("Defensive")
 TabC:CreateToggle({Name = "Auto Block", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Enabled = v end})
 TabC:CreateSlider({Name = "Block Range", Range = {5, 50}, Increment = 1, CurrentValue = 18, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Range = v end})
 
-TabK:CreateSection("Killer Mode")
 TabK:CreateToggle({Name = "Killer Mode", CurrentValue = false, Callback = function(v) Itoshi.Settings.Killer.Enabled = v end})
-TabK:CreateToggle({Name = "Reach (Hitbox)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Killer.Reach.Enabled = v end})
+TabK:CreateToggle({Name = "Reach (Silent Link)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Killer.Reach.Enabled = v end})
 TabK:CreateToggle({Name = "Magnet", CurrentValue = false, Callback = function(v) Itoshi.Settings.Killer.Magnet.Enabled = v end})
 
 TabM:CreateToggle({Name = "Fly (CFrame)", CurrentValue = false, Callback = function(v) 
@@ -357,30 +442,28 @@ TabM:CreateToggle({Name = "Fly (CFrame)", CurrentValue = false, Callback = funct
     end 
 end})
 TabM:CreateSlider({Name = "Fly Speed", Range = {0.1, 10}, Increment = 0.1, CurrentValue = 1, Callback = function(v) Itoshi.Settings.Movement.Fly.Speed = v end})
-TabM:CreateToggle({Name = "Speed Hack (CFrame)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.Speed.Enabled = v end})
-TabM:CreateSlider({Name = "Speed Multiplier", Range = {0.1, 5}, Increment = 0.1, CurrentValue = 0.5, Callback = function(v) Itoshi.Settings.Movement.Speed.Val = v end})
+
+TabM:CreateToggle({Name = "Speed Hack", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.Speed.Enabled = v end})
+TabM:CreateDropdown({Name = "Speed Mode", Options = {"Velocity", "CFrame", "WalkSpeed"}, CurrentOption = "Velocity", Callback = function(v) Itoshi.Settings.Movement.Speed.Mode = v end})
+TabM:CreateSlider({Name = "Speed Value", Range = {10, 300}, Increment = 1, CurrentValue = 100, Callback = function(v) Itoshi.Settings.Movement.Speed.Val = v end})
+
 TabM:CreateToggle({Name = "NoClip", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.NoClip.Enabled = v end})
 
-TabV:CreateSection("Mobile Support")
-TabV:CreateToggle({Name = "Show Mobile Buttons", CurrentValue = false, Callback = function(v) 
-    Itoshi.Settings.Visuals.MobileUI = v
-    MobileManager.Toggle()
-end})
-
-TabV:CreateSection("Render")
+TabV:CreateToggle({Name = "Show Mobile Buttons", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.MobileUI = v MobileManager.Toggle() end})
 TabV:CreateToggle({Name = "ESP", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.ESP.Enabled = v end})
 TabV:CreateToggle({Name = "Fullbright", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Fullbright = v if v then Lighting.Brightness=2 Lighting.ClockTime=14 Lighting.GlobalShadows=false Lighting.Ambient=Color3.new(1,1,1) end end})
 
--- OPTIMIZED LOOPS
+TabU:CreateToggle({Name = "Auto Heal", CurrentValue = false, Callback = function(v) Itoshi.Settings.Utility.AutoHeal.Enabled = v end})
+
 RunService.RenderStepped:Connect(function(dt)
     SecureCall(Physics.Update, dt)
     SecureCall(Combat.Update)
 end)
 
--- ESP Loop Separated for Performance
+-- SEPARATED ESP LOOP (FIXED)
 task.spawn(function()
     while true do
-        task.wait(0.2) -- Updates 5 times a second instead of 60 (HUGE MOBILE FPS BOOST)
+        task.wait(0.25)
         if Itoshi.Settings.Visuals.ESP.Enabled then
             for _, p in pairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character then
