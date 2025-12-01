@@ -2,28 +2,31 @@ local getgenv = getgenv or function() return _G end
 local cloneref = cloneref or function(o) return o end
 local Services = setmetatable({}, {__index = function(t, k) return cloneref(game:GetService(k)) end})
 
+-- SERVICES
 local Players = Services.Players
 local RunService = Services.RunService
 local Workspace = Services.Workspace
-local VirtualInputManager = Services.VirtualInputManager
+local UserInputService = Services.UserInputService
 local CoreGui = Services.CoreGui
+local VirtualInputManager = Services.VirtualInputManager
 local Lighting = Services.Lighting
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
+-- CONFIG
 local Itoshi = {
     Settings = {
         Combat = {
-            KillAura = {Enabled = false, Range = 25, Rotate = true},
             AutoBlock = {
                 Enabled = false, 
-                Range = 18, 
+                Range = 20, 
+                Reaction = 0, 
                 Duration = 0.5, 
-                Sensitivity = "High", -- High = Block ANYTHING that isn't walking
-                Debug = true -- Shows "BLOCKING!" text when triggered
+                Mode = "Hyper"
             },
-            Hitbox = {Enabled = false, Size = 15, Transparency = 0.7}
+            KillAura = {Enabled = false, Range = 22, Speed = 0.1},
+            Hitbox = {Enabled = false, Size = 15, Transparency = 0.8}
         },
         Visuals = {
             ESP = {Enabled = false},
@@ -33,13 +36,13 @@ local Itoshi = {
     State = {
         Blocking = false,
         LastBlock = 0,
+        LastAttack = 0,
     },
     Cache = {
         ESP = {},
-        SafeAnims = { -- Animations to IGNORE (Walking/Idle)
-            ["idle"] = true, ["walk"] = true, ["run"] = true, ["jump"] = true, ["fall"] = true, ["climb"] = true
-        }
-    }
+        Targets = {}
+    },
+    Keywords = {"attack", "slash", "swing", "punch", "lunge", "throw", "cast", "m1", "action", "heavy", "light"}
 }
 
 -- AUTH
@@ -52,21 +55,23 @@ function KeySystem.Run()
     local F = Instance.new("Frame")
     F.Size = UDim2.new(0, 300, 0, 150)
     F.Position = UDim2.new(0.5, -150, 0.5, -75)
-    F.BackgroundColor3 = Color3.fromRGB(20, 0, 0)
+    F.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
     F.Parent = S
     
     local B = Instance.new("TextBox")
     B.Size = UDim2.new(0.8, 0, 0.3, 0)
-    B.Position = UDim2.new(0.1, 0, 0.3, 0)
-    B.Text = ""
+    B.Position = UDim2.new(0.1, 0, 0.25, 0)
+    B.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    B.TextColor3 = Color3.new(1,1,1)
     B.PlaceholderText = "Key..."
+    B.Text = ""
     B.Parent = F
     
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(0.8, 0, 0.25, 0)
-    Btn.Position = UDim2.new(0.1, 0, 0.7, 0)
-    Btn.Text = "FIXED LOAD"
-    Btn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+    Btn.Position = UDim2.new(0.1, 0, 0.65, 0)
+    Btn.Text = "INJECT (Q/R FIX)"
+    Btn.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
     Btn.Parent = F
     
     local V = false
@@ -88,133 +93,107 @@ local function SecureCall(func, ...)
     return r
 end
 
-local function CreateDebugText(Target)
-    if not Itoshi.Settings.Combat.AutoBlock.Debug then return end
-    local B = Instance.new("BillboardGui")
-    B.Adornee = Target
-    B.Size = UDim2.new(0, 200, 0, 50)
-    B.StudsOffset = Vector3.new(0, 3, 0)
-    B.AlwaysOnTop = true
-    
-    local T = Instance.new("TextLabel")
-    T.Size = UDim2.new(1,0,1,0)
-    T.BackgroundTransparency = 1
-    T.Text = "ATTACK DETECTED!"
-    T.TextColor3 = Color3.new(1,0,0)
-    T.TextScaled = true
-    T.Font = Enum.Font.GothamBlack
-    T.Parent = B
-    
-    B.Parent = CoreGui
-    game:GetService("Debris"):AddItem(B, 1)
+local function GetRoot(Char)
+    return Char:FindFirstChild("HumanoidRootPart")
 end
 
 -- COMBAT
 local Combat = {}
 
-function Combat.GetTargets()
-    local T = {}
+function Combat.RefreshCache()
+    table.clear(Itoshi.Cache.Targets)
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then table.insert(T, p.Character) end
+        if p ~= LocalPlayer and p.Character then table.insert(Itoshi.Cache.Targets, p.Character) end
     end
-    -- Get NPCs
     for _, v in pairs(Workspace:GetDescendants()) do
         if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(v) then
-            table.insert(T, v)
+            table.insert(Itoshi.Cache.Targets, v)
         end
     end
-    return T
+end
+
+function Combat.GetClosestThreat()
+    local MyRoot = GetRoot(LocalPlayer.Character)
+    if not MyRoot then return nil end
+    
+    local Closest = nil
+    local MinDist = Itoshi.Settings.Combat.AutoBlock.Range
+    
+    for _, Target in pairs(Itoshi.Cache.Targets) do
+        local TRoot = GetRoot(Target)
+        if TRoot then
+            local Dist = (MyRoot.Position - TRoot.Position).Magnitude
+            if Dist < MinDist then
+                MinDist = Dist
+                Closest = Target
+            end
+        end
+    end
+    return Closest
 end
 
 function Combat.IsAttacking(Char)
     if not Char then return false end
-    local Anim = Char:FindFirstChild("Humanoid") and Char.Humanoid:FindFirstChild("Animator")
+    local Hum = Char:FindFirstChild("Humanoid")
+    if not Hum then return false end
+    local Anim = Hum:FindFirstChild("Animator")
     if not Anim then return false end
     
     for _, Track in pairs(Anim:GetPlayingAnimationTracks()) do
-        local Name = Track.Name:lower()
-        local Speed = Track.Speed
-        
-        -- AGGRESSIVE CHECK:
-        -- If animation is NOT in the safe list (walk/run/idle) -> IT IS AN ATTACK
-        local IsSafe = false
-        for SafeName, _ in pairs(Itoshi.Cache.SafeAnims) do
-            if string.find(Name, SafeName) then
-                IsSafe = true
-                break
-            end
+        if Track.Priority == Enum.AnimationPriority.Action or Track.Priority == Enum.AnimationPriority.Action2 then
+            return true
         end
-        
-        -- Extra Check: Attacks usually have speed > 0 or specific priorities
-        if not IsSafe and (Track.Priority.Value >= 2 or Speed > 0.5) then
-            return true -- Block it!
+        local N = Track.Name:lower()
+        for _, K in pairs(Itoshi.Keywords) do
+            if string.find(N, K) then return true end
         end
     end
     return false
 end
 
-function Combat.PerformBlock(Target)
-    if Itoshi.State.Blocking or (tick() - Itoshi.State.LastBlock < 0.1) then return end
+function Combat.Logic()
+    local MyRoot = GetRoot(LocalPlayer.Character)
+    if not MyRoot then return end
     
-    -- Visual Debug
-    CreateDebugText(Target)
+    local Target = Combat.GetClosestThreat()
+    if not Target then return end
     
-    -- Face Target
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local MyRoot = LocalPlayer.Character.HumanoidRootPart
-        local TargetRoot = Target:FindFirstChild("HumanoidRootPart")
-        if TargetRoot then
-            MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TargetRoot.Position.X, MyRoot.Position.Y, TargetRoot.Position.Z))
-        end
-    end
+    local TRoot = GetRoot(Target)
     
-    Itoshi.State.Blocking = true
-    Itoshi.State.LastBlock = tick()
-    
-    -- Spam F key to ensure registration
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-    task.wait(0.05)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-    task.wait(0.05)
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game) -- Hold again
-    
-    task.delay(Itoshi.Settings.Combat.AutoBlock.Duration, function()
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-        Itoshi.State.Blocking = false
-    end)
-end
-
-function Combat.Update()
-    -- KILL AURA
-    if Itoshi.Settings.Combat.KillAura.Enabled then
-        local MyRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if MyRoot then
-            for _, Char in pairs(Combat.GetTargets()) do
-                local Root = Char:FindFirstChild("HumanoidRootPart")
-                if Root and (MyRoot.Position - Root.Position).Magnitude <= Itoshi.Settings.Combat.KillAura.Range then
-                    MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(Root.Position.X, MyRoot.Position.Y, Root.Position.Z))
-                    local Tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                    if Tool then Tool:Activate() end
-                    VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
-                    VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
-                    break 
-                end
-            end
+    -- KILL AURA (Using 'R' Key)
+    if Itoshi.Settings.Combat.KillAura.Enabled and TRoot then
+        local Dist = (MyRoot.Position - TRoot.Position).Magnitude
+        if Dist <= Itoshi.Settings.Combat.KillAura.Range and (tick() - Itoshi.State.LastAttack > Itoshi.Settings.Combat.KillAura.Speed) then
+            -- Face Enemy
+            MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TRoot.Position.X, MyRoot.Position.Y, TRoot.Position.Z))
+            
+            -- Press 'R' for Punch
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+            
+            Itoshi.State.LastAttack = tick()
         end
     end
 
-    -- AUTO BLOCK (Aggressive Mode)
-    if Itoshi.Settings.Combat.AutoBlock.Enabled then
-        local MyRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if MyRoot then
-            for _, Char in pairs(Combat.GetTargets()) do
-                local Root = Char:FindFirstChild("HumanoidRootPart")
-                if Root and (MyRoot.Position - Root.Position).Magnitude <= Itoshi.Settings.Combat.AutoBlock.Range then
-                    if Combat.IsAttacking(Char) then
-                        Combat.PerformBlock(Char)
-                        break -- Block closest threat
-                    end
-                end
+    -- AUTO BLOCK (Using 'Q' Key)
+    if Itoshi.Settings.Combat.AutoBlock.Enabled and TRoot then
+        if Combat.IsAttacking(Target) then
+            if not Itoshi.State.Blocking and (tick() - Itoshi.State.LastBlock > 0.1) then
+                -- Face Enemy
+                MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TRoot.Position.X, MyRoot.Position.Y, TRoot.Position.Z))
+                
+                task.wait(Itoshi.Settings.Combat.AutoBlock.Reaction)
+                
+                Itoshi.State.Blocking = true
+                Itoshi.State.LastBlock = tick()
+                
+                -- Press 'Q' for Block
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                
+                task.delay(Itoshi.Settings.Combat.AutoBlock.Duration, function()
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                    Itoshi.State.Blocking = false
+                end)
             end
         end
     end
@@ -223,11 +202,14 @@ end
 -- HITBOX
 function Combat.UpdateHitbox()
     if not Itoshi.Settings.Combat.Hitbox.Enabled then return end
-    for _, Char in pairs(Combat.GetTargets()) do
-        local Root = Char:FindFirstChild("HumanoidRootPart")
+    local S = Itoshi.Settings.Combat.Hitbox.Size
+    local T = Itoshi.Settings.Combat.Hitbox.Transparency
+    
+    for _, Char in pairs(Itoshi.Cache.Targets) do
+        local Root = GetRoot(Char)
         if Root then
-            Root.Size = Vector3.new(Itoshi.Settings.Combat.Hitbox.Size, Itoshi.Settings.Combat.Hitbox.Size, Itoshi.Settings.Combat.Hitbox.Size)
-            Root.Transparency = Itoshi.Settings.Combat.Hitbox.Transparency
+            Root.Size = Vector3.new(S, S, S)
+            Root.Transparency = T
             Root.CanCollide = false
         end
     end
@@ -236,8 +218,8 @@ end
 -- UI
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
-    Name = "Itoshi Hub | Fixed",
-    LoadingTitle = "Universal Core",
+    Name = "Itoshi Hub",
+    LoadingTitle = "Applying Keybinds...",
     ConfigurationSaving = {Enabled = true, FolderName = "ItoshiHub", FileName = "Cfg"},
     KeySystem = false, 
 })
@@ -245,21 +227,20 @@ local Window = Rayfield:CreateWindow({
 local TabC = Window:CreateTab("Combat", 4483362458)
 local TabV = Window:CreateTab("Visuals", 4483362458)
 
-TabC:CreateToggle({Name = "Kill Aura", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.KillAura.Enabled = v end})
-TabC:CreateToggle({Name = "Auto Block (Aggressive)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Enabled = v end})
+TabC:CreateToggle({Name = "Kill Aura (Presses R)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.KillAura.Enabled = v end})
+TabC:CreateToggle({Name = "Auto Block (Presses Q)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Enabled = v end})
 TabC:CreateSlider({Name = "Block Range", Range = {5, 30}, Increment = 1, CurrentValue = 18, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Range = v end})
-TabC:CreateToggle({Name = "Show 'BLOCKING!' Text", CurrentValue = true, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Debug = v end})
+TabC:CreateSlider({Name = "Block Duration", Range = {0.1, 1}, Increment = 0.1, CurrentValue = 0.5, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Duration = v end})
+
 TabC:CreateToggle({Name = "Hitbox Expander", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.Hitbox.Enabled = v end})
 TabC:CreateSlider({Name = "Hitbox Size", Range = {2, 30}, Increment = 1, CurrentValue = 15, Callback = function(v) Itoshi.Settings.Combat.Hitbox.Size = v end})
 
 TabV:CreateToggle({Name = "ESP", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.ESP.Enabled = v end})
 TabV:CreateToggle({Name = "Fullbright", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Fullbright = v end})
 
--- LOOPS
+-- FAST LOOP
 RunService.RenderStepped:Connect(function()
-    SecureCall(Combat.Update)
-    SecureCall(Combat.UpdateHitbox)
-    
+    SecureCall(Combat.Logic)
     if Itoshi.Settings.Visuals.Fullbright then
         Lighting.Brightness = 2
         Lighting.ClockTime = 14
@@ -267,10 +248,13 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ESP
+-- SLOW LOOP
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.5) 
+        SecureCall(Combat.RefreshCache)
+        SecureCall(Combat.UpdateHitbox)
+        
         if Itoshi.Settings.Visuals.ESP.Enabled then
             for _, p in pairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character then
