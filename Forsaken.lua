@@ -57,25 +57,45 @@ function KeySystem.Run()
     local S = Instance.new("ScreenGui")
     S.Parent = CoreGui
     S.Name = "TitaniumAuth"
+    
     local F = Instance.new("Frame")
     F.Size = UDim2.new(0, 300, 0, 150)
     F.Position = UDim2.new(0.5, -150, 0.5, -75)
     F.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+    F.BorderSizePixel = 0
     F.Parent = S
     
+    local Gradient = Instance.new("UIGradient")
+    Gradient.Color = ColorSequence.new(Color3.fromRGB(20,20,25), Color3.fromRGB(10,10,12))
+    Gradient.Rotation = 45
+    Gradient.Parent = F
+    
+    local Title = Instance.new("TextLabel")
+    Title.Text = "TITANIUM CORE"
+    Title.Size = UDim2.new(1, 0, 0.2, 0)
+    Title.BackgroundTransparency = 1
+    Title.TextColor3 = Color3.fromRGB(180, 0, 0)
+    Title.Font = Enum.Font.GothamBlack
+    Title.TextSize = 18
+    Title.Parent = F
+    
     local B = Instance.new("TextBox")
-    B.Size = UDim2.new(0.8, 0, 0.3, 0)
+    B.Size = UDim2.new(0.8, 0, 0.25, 0)
     B.Position = UDim2.new(0.1, 0, 0.3, 0)
+    B.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+    B.BorderSizePixel = 0
+    B.TextColor3 = Color3.fromRGB(255, 255, 255)
     B.Text = ""
-    B.PlaceholderText = "Key: FFDGDLFYUFOHDWHHFXX"
+    B.PlaceholderText = "Enter Key Here..." -- تم إخفاء المفتاح
     B.Parent = F
     
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(0.8, 0, 0.2, 0)
     Btn.Position = UDim2.new(0.1, 0, 0.7, 0)
-    Btn.Text = "INJECT CORE"
+    Btn.Text = "INJECT"
     Btn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
     Btn.TextColor3 = Color3.new(1,1,1)
+    Btn.Font = Enum.Font.GothamBold
     Btn.Parent = F
     
     local Valid = false
@@ -84,6 +104,10 @@ function KeySystem.Run()
             Valid = true
             getgenv().TitaniumAuth = true
             S:Destroy()
+        else
+            B.Text = "INVALID KEY"
+            task.wait(1)
+            B.Text = ""
         end
     end)
     repeat task.wait(0.1) until Valid
