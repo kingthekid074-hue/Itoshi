@@ -1,6 +1,3 @@
--- [[ ITOSHI HUB: THE MASTERPIECE (REVERSE ENGINEERED) ]] --
--- ARCHITECTURE: ADVANCED AI + NATIVE BYPASS + DATA DRIVEN
-
 local getgenv = getgenv or function() return _G end
 local cloneref = cloneref or function(o) return o end
 local hookmetamethod = hookmetamethod or function(...) end
@@ -116,7 +113,7 @@ local function LoadKeySystem()
     if getgenv().ItoshiAuth then return end
     local S = Instance.new("ScreenGui")
     S.Parent = CoreGui
-    S.Name = "ItoshiAuth"
+    S.Name = "Itoshi key system"
     local F = Instance.new("Frame")
     F.Size = UDim2.new(0, 320, 0, 160)
     F.Position = UDim2.new(0.5, -160, 0.5, -80)
@@ -135,7 +132,7 @@ local function LoadKeySystem()
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(0.8, 0, 0.25, 0)
     Btn.Position = UDim2.new(0.1, 0, 0.7, 0)
-    Btn.Text = "INJECT MASTERPIECE"
+    Btn.Text = "verify"
     Btn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
     Btn.Parent = F
     
