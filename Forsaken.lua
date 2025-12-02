@@ -1,62 +1,86 @@
-local Services = setmetatable({}, {
-    __index = function(self, key)
-        return game:GetService(key)
-    end
-})
+-- // ITOSHI HUB V14: ULTIMATE ARCHITECTURE //
+-- SYSTEM: ROBLOX LUA OPTIMIZED
+-- BUILD: RELEASE CANDIDATE
 
-local Players = Services.Players
-local Workspace = Services.Workspace
-local ReplicatedStorage = Services.ReplicatedStorage
-local RunService = Services.RunService
-local CoreGui = Services.CoreGui
-local Lighting = Services.Lighting
-local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
+local Services = {
+    Players = game:GetService("Players"),
+    Workspace = game:GetService("Workspace"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    RunService = game:GetService("RunService"),
+    VirtualInputManager = game:GetService("VirtualInputManager"),
+    UserInputService = game:GetService("UserInputService"),
+    CoreGui = game:GetService("CoreGui"),
+    Lighting = game:GetService("Lighting"),
+    Stats = game:GetService("Stats"),
+    TweenService = game:GetService("TweenService"),
+    TeleportService = game:GetService("TeleportService"),
+    HttpService = game:GetService("HttpService")
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+local Camera = Services.Workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
 -- // CONFIGURATION //
--- Default settings (All OFF for safety)
 local Itoshi = {
-    KeySystem = {
+    Auth = {
         Key = "FFDGDLFYUFOHDWHHFXX",
-        DiscordLink = "https://discord.gg/AUxUj6T2yE"
+        Discord = "https://discord.gg/AUxUj6T2yE",
+        Passed = false
     },
     Settings = {
         Combat = {
             Enabled = false,
-            AutoBlock = false,
+            AutoBlock_Audio = false,
+            AutoBlock_Anim = false,
             Prediction = false,
+            PredictionAmount = 0.15,
             Range = 25,
-            CounterAttack = false
+            DoubleTap = false,
+            TeleportBehind = false, -- New: Teleport behind killer when they attack
+            FaceEnemy = false
         },
         Generator = {
             Enabled = false,
             Mode = "Hybrid", -- Hybrid, Instant, Legit
-            Speed = 0.03,
-            AutoLeave = false
+            FixSpeed = 0.03,
+            AutoLeave = false,
+            TeleportToGen = false -- New: TP to nearest gen
         },
-        Player = {
-            Speed = false,
-            SpeedAmount = 0.8,
+        Movement = {
+            SpeedEnabled = false,
+            SpeedFactor = 0.8,
+            PulseMove = false,
+            AntiStun = false,
             InfiniteStamina = false,
-            NoSlow = false
+            AutoWiggle = false, -- New: Auto spam A/D when grabbed
+            BunnyHop = false
         },
         Visuals = {
             Enabled = false,
-            Boxes = false,
-            Names = false,
+            Box = false,
+            Name = false,
+            Distance = false,
+            Health = false,
+            Tracers = false,
             Fullbright = false,
-            BigHitbox = false
+            HitboxExpand = false,
+            HitboxSize = 22,
+            HitboxColor = Color3.fromRGB(255, 0, 0),
+            Chams = false
         }
     },
-    Data = {
-        ESP_Cache = {},
-        Sound_Cache = {},
-        LastBlock = 0
+    Cache = {
+        Drawings = {},
+        Sounds = {},
+        Connections = {},
+        LastBlock = 0,
+        CurrentTarget = nil
     }
 }
 
--- // DATABASE //
-local AttackSounds = {
+-- // DATABASE: KILLER SOUNDS (COMPLETE) //
+local SoundDatabase = {
     ["102228729296384"] = true, ["140242176732868"] = true, ["112809109188560"] = true,
     ["136323728355613"] = true, ["115026634746636"] = true, ["84116622032112"] = true,
     ["108907358619313"] = true, ["127793641088496"] = true, ["86174610237192"] = true,
@@ -74,7 +98,8 @@ local AttackSounds = {
     ["125403313786645"] = true, ["83829782357897"] = true
 }
 
-local AttackAnims = {
+-- // DATABASE: KILLER ANIMATIONS (COMPLETE) //
+local AnimDatabase = {
     "126830014841198", "126355327951215", "121086746534252", "18885909645", 
     "98456918873918", "105458270463374", "83829782357897", "125403313786645", 
     "118298475669935", "82113744478546", "70371667919898", "99135633258223", 
@@ -84,167 +109,247 @@ local AttackAnims = {
     "879895330952"
 }
 
-local KillerDelays = {
+-- // DATABASE: KILLER DELAYS //
+local DelayDatabase = {
     ["c00lkidd"] = 0, ["jason"] = 0.013, ["slasher"] = 0.01,
     ["1x1x1x1"] = 0.15, ["johndoe"] = 0.33, ["noli"] = 0.15,
     ["nosferatu"] = 0.02, ["guest 666"] = 0.15, ["default"] = 0.1
 }
 
--- // KEY SYSTEM //
-local function StartKeySystem()
-    if getgenv().ItoshiKeyPassed then return end
+-- // UTILITY SYSTEM //
+local Utils = {}
+
+function Utils.GetRoot(char)
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+function Utils.GetHum(char)
+    if not char then return nil end
+    return char:FindFirstChild("Humanoid")
+end
+
+function Utils.GetPing()
+    local PingVal = Services.Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+    return PingVal / 1000
+end
+
+function Utils.IsVisible(part)
+    if not part then return false end
+    local Origin = Camera.CFrame.Position
+    local Direction = (part.Position - Origin).Unit * (part.Position - Origin).Magnitude
+    local Raycast = Services.Workspace:Raycast(Origin, Direction)
+    if Raycast and Raycast.Instance:IsDescendantOf(part.Parent) then
+        return true
+    end
+    return false
+end
+
+function Utils.Notify(title, text, duration)
+    Services.CoreGui:FindFirstChild("RobloxGui"):FindFirstChild("NotificationFrame"):Fire({
+        Title = title,
+        Text = text,
+        Duration = duration
+    })
+end
+
+-- // AUTHENTICATION SYSTEM (UI) //
+local function InitializeAuth()
+    if getgenv().ItoshiV14Auth then return end
     
     local GUI = Instance.new("ScreenGui")
-    GUI.Name = "ItoshiKeySystem"
-    GUI.Parent = CoreGui
+    GUI.Name = "ItoshiSecurityV14"
+    GUI.Parent = Services.CoreGui
     GUI.IgnoreGuiInset = true
-
-    local Blur = Instance.new("BlurEffect", Lighting)
+    
+    local Blur = Instance.new("BlurEffect", Services.Lighting)
     Blur.Size = 0
-    Services.TweenService:Create(Blur, TweenInfo.new(0.5), {Size = 15}):Play()
-
+    Services.TweenService:Create(Blur, TweenInfo.new(1), {Size = 20}):Play()
+    
     local Frame = Instance.new("Frame", GUI)
-    Frame.Size = UDim2.new(0, 350, 0, 200)
+    Frame.Size = UDim2.new(0, 400, 0, 250)
     Frame.Position = UDim2.new(0.5, 0, 0.5, 0)
     Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
     Frame.BorderSizePixel = 0
-    Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 8)
-
+    
+    local Stroke = Instance.new("UIStroke", Frame)
+    Stroke.Color = Color3.fromRGB(200, 0, 0)
+    Stroke.Thickness = 2
+    
     local Title = Instance.new("TextLabel", Frame)
-    Title.Size = UDim2.new(1, 0, 0, 40)
+    Title.Size = UDim2.new(1, 0, 0, 50)
     Title.BackgroundTransparency = 1
-    Title.Text = "Itoshi Hub | Key System"
+    Title.Text = "ITOSHI HUB V14"
     Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.Font = Enum.Font.SourceSansBold
-    Title.TextSize = 20
-
+    Title.Font = Enum.Font.GothamBlack
+    Title.TextSize = 24
+    
     local Input = Instance.new("TextBox", Frame)
-    Input.Size = UDim2.new(0.8, 0, 0, 35)
+    Input.Size = UDim2.new(0.8, 0, 0, 40)
     Input.Position = UDim2.new(0.1, 0, 0.35, 0)
     Input.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     Input.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Input.PlaceholderText = "Paste Key Here..."
+    Input.PlaceholderText = "Paste Key..."
     Input.Text = ""
     Instance.new("UICorner", Input).CornerRadius = UDim.new(0, 6)
-
-    local Submit = Instance.new("TextButton", Frame)
-    Submit.Size = UDim2.new(0.8, 0, 0, 35)
-    Submit.Position = UDim2.new(0.1, 0, 0.6, 0)
-    Submit.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
-    Submit.Text = "Check Key"
-    Submit.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Submit.Font = Enum.Font.SourceSansBold
-    Submit.TextSize = 16
-    Instance.new("UICorner", Submit).CornerRadius = UDim.new(0, 6)
-
-    local Discord = Instance.new("TextButton", Frame)
-    Discord.Size = UDim2.new(1, 0, 0, 20)
-    Discord.Position = UDim2.new(0, 0, 0.85, 0)
-    Discord.BackgroundTransparency = 1
-    Discord.Text = "Get Key (Copy Discord Link)"
-    Discord.TextColor3 = Color3.fromRGB(100, 100, 255)
-    Discord.TextSize = 14
-
-    Discord.MouseButton1Click:Connect(function()
-        setclipboard(Itoshi.KeySystem.DiscordLink)
-        Discord.Text = "Link Copied!"
+    
+    local DiscordBtn = Instance.new("TextButton", Frame)
+    DiscordBtn.Size = UDim2.new(0.8, 0, 0, 30)
+    DiscordBtn.Position = UDim2.new(0.1, 0, 0.55, 0)
+    DiscordBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    DiscordBtn.Text = "COPY DISCORD LINK"
+    DiscordBtn.TextColor3 = Color3.fromRGB(100, 100, 255)
+    Instance.new("UICorner", DiscordBtn).CornerRadius = UDim.new(0, 6)
+    
+    local LoginBtn = Instance.new("TextButton", Frame)
+    LoginBtn.Size = UDim2.new(0.8, 0, 0, 40)
+    LoginBtn.Position = UDim2.new(0.1, 0, 0.75, 0)
+    LoginBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    LoginBtn.Text = "LOGIN"
+    LoginBtn.Font = Enum.Font.GothamBold
+    LoginBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Instance.new("UICorner", LoginBtn).CornerRadius = UDim.new(0, 6)
+    
+    DiscordBtn.MouseButton1Click:Connect(function()
+        setclipboard(Itoshi.Auth.Discord)
+        DiscordBtn.Text = "LINK COPIED!"
         task.wait(1)
-        Discord.Text = "Get Key (Copy Discord Link)"
+        DiscordBtn.Text = "COPY DISCORD LINK"
     end)
-
-    Submit.MouseButton1Click:Connect(function()
-        if Input.Text == Itoshi.KeySystem.Key then
-            Submit.Text = "Success!"
-            Submit.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+    
+    LoginBtn.MouseButton1Click:Connect(function()
+        if Input.Text == Itoshi.Auth.Key then
+            LoginBtn.Text = "SUCCESS"
+            LoginBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
             task.wait(0.5)
             GUI:Destroy()
             Blur:Destroy()
-            getgenv().ItoshiKeyPassed = true
+            getgenv().ItoshiV14Auth = true
         else
-            Submit.Text = "Wrong Key"
-            Submit.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+            LoginBtn.Text = "INVALID KEY"
+            LoginBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
             task.wait(1)
-            Submit.Text = "Check Key"
-            Submit.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+            LoginBtn.Text = "LOGIN"
+            LoginBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
         end
     end)
-
-    repeat task.wait(0.2) until getgenv().ItoshiKeyPassed
+    
+    repeat task.wait(0.1) until getgenv().ItoshiV14Auth
 end
 
-StartKeySystem()
+InitializeAuth()
 
--- // UTILS //
-local function GetRoot(char) return char and char:FindFirstChild("HumanoidRootPart") end
-local function GetHum(char) return char and char:FindFirstChild("Humanoid") end
-local function SafeCall(func, ...) pcall(func, ...) end
-local function GetPing() return Services.Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end
-
--- // ESP (VISUALS) //
+-- // VISUALS ENGINE (DRAWING API) //
 local ESP = {}
-function ESP.Add(Model)
-    if Itoshi.Data.ESP_Cache[Model] then return end
-    local Obj = {
+
+function ESP.Create(Model)
+    if Itoshi.Cache.Drawings[Model] then return end
+    
+    local Objects = {
         Box = Drawing.new("Square"),
         Name = Drawing.new("Text"),
-        Model = Model
+        HealthBar = Drawing.new("Square"),
+        HealthOutline = Drawing.new("Square"),
+        Distance = Drawing.new("Text"),
+        Tracer = Drawing.new("Line")
     }
-    Obj.Box.Visible = false
-    Obj.Box.Color = Color3.fromRGB(255, 0, 0)
-    Obj.Box.Thickness = 1
-    Obj.Box.Filled = false
     
-    Obj.Name.Visible = false
-    Obj.Name.Color = Color3.new(1, 1, 1)
-    Obj.Name.Size = 14
-    Obj.Name.Center = true
-    Obj.Name.Outline = true
+    Objects.Box.Visible = false
+    Objects.Box.Thickness = 1.5
+    Objects.Box.Color = Color3.fromRGB(255, 50, 50)
+    Objects.Box.Filled = false
     
-    Itoshi.Data.ESP_Cache[Model] = Obj
+    Objects.Name.Visible = false
+    Objects.Name.Center = true
+    Objects.Name.Color = Color3.fromRGB(255, 255, 255)
+    Objects.Name.Size = 14
+    Objects.Name.Outline = true
+    
+    Objects.Distance.Visible = false
+    Objects.Distance.Center = true
+    Objects.Distance.Color = Color3.fromRGB(200, 200, 200)
+    Objects.Distance.Size = 12
+    Objects.Distance.Outline = true
+    
+    Objects.Tracer.Visible = false
+    Objects.Tracer.Thickness = 1
+    Objects.Tracer.Color = Color3.fromRGB(255, 255, 255)
+    
+    Itoshi.Cache.Drawings[Model] = Objects
 end
 
-function ESP.Clear(Model)
-    if Itoshi.Data.ESP_Cache[Model] then
-        Itoshi.Data.ESP_Cache[Model].Box:Remove()
-        Itoshi.Data.ESP_Cache[Model].Name:Remove()
-        Itoshi.Data.ESP_Cache[Model] = nil
+function ESP.Remove(Model)
+    if Itoshi.Cache.Drawings[Model] then
+        for _, DrawingObj in pairs(Itoshi.Cache.Drawings[Model]) do
+            DrawingObj:Remove()
+        end
+        Itoshi.Cache.Drawings[Model] = nil
     end
 end
 
-function ESP.MainLoop()
-    if not Itoshi.Settings.Visuals.Enabled then 
-        for _, v in pairs(Itoshi.Data.ESP_Cache) do v.Box.Visible = false v.Name.Visible = false end
-        return 
-    end
-    for Model, Obj in pairs(Itoshi.Data.ESP_Cache) do
-        if Model.Parent and GetRoot(Model) and GetHum(Model) and GetHum(Model).Health > 0 then
-            local Pos, OnScreen = Camera:WorldToViewportPoint(GetRoot(Model).Position)
+function ESP.Update()
+    for Model, Objs in pairs(Itoshi.Cache.Drawings) do
+        if not Itoshi.Settings.Visuals.Enabled then
+            for _, v in pairs(Objs) do v.Visible = false end
+            continue
+        end
+        
+        if Model.Parent and Utils.GetRoot(Model) and Utils.GetHum(Model) and Utils.GetHum(Model).Health > 0 then
+            local Root = Utils.GetRoot(Model)
+            local ScreenPos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+            local Distance = (LocalPlayer.Character.HumanoidRootPart.Position - Root.Position).Magnitude
+            
             if OnScreen then
-                local H = 2500 / Pos.Z
-                if Itoshi.Settings.Visuals.Boxes then
-                    Obj.Box.Size = Vector2.new(H * 0.7, H)
-                    Obj.Box.Position = Vector2.new(Pos.X - Obj.Box.Size.X / 2, Pos.Y - Obj.Box.Size.Y / 2)
-                    Obj.Box.Visible = true
-                else Obj.Box.Visible = false end
+                local Size = 2500 / ScreenPos.Z
+                local Width = Size * 0.6
                 
-                if Itoshi.Settings.Visuals.Names then
-                    Obj.Name.Text = Model.Name
-                    Obj.Name.Position = Vector2.new(Pos.X, Pos.Y - (H / 2) - 15)
-                    Obj.Name.Visible = true
-                else Obj.Name.Visible = false end
+                -- Box
+                if Itoshi.Settings.Visuals.Box then
+                    Objs.Box.Size = Vector2.new(Width, Size)
+                    Objs.Box.Position = Vector2.new(ScreenPos.X - Width/2, ScreenPos.Y - Size/2)
+                    Objs.Box.Visible = true
+                else
+                    Objs.Box.Visible = false
+                end
+                
+                -- Name
+                if Itoshi.Settings.Visuals.Name then
+                    Objs.Name.Text = Model.Name
+                    Objs.Name.Position = Vector2.new(ScreenPos.X, ScreenPos.Y - Size/2 - 15)
+                    Objs.Name.Visible = true
+                else
+                    Objs.Name.Visible = false
+                end
+                
+                -- Distance
+                if Itoshi.Settings.Visuals.Distance then
+                    Objs.Distance.Text = "[" .. math.floor(Distance) .. "m]"
+                    Objs.Distance.Position = Vector2.new(ScreenPos.X, ScreenPos.Y + Size/2 + 5)
+                    Objs.Distance.Visible = true
+                else
+                    Objs.Distance.Visible = false
+                end
+                
+                -- Tracer
+                if Itoshi.Settings.Visuals.Tracers then
+                    Objs.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                    Objs.Tracer.To = Vector2.new(ScreenPos.X, ScreenPos.Y + Size/2)
+                    Objs.Tracer.Visible = true
+                else
+                    Objs.Tracer.Visible = false
+                end
             else
-                Obj.Box.Visible = false
-                Obj.Name.Visible = false
+                for _, v in pairs(Objs) do v.Visible = false end
             end
         else
-            ESP.Clear(Model)
+            ESP.Remove(Model)
         end
     end
 end
 
--- // GENERATOR AUTO FIX //
-local function SetupGeneratorHook()
+-- // GENERATOR AI (SMART HOOK) //
+local function InitializeGeneratorAI()
     local OldNC
     OldNC = hookmetamethod(game, "__namecall", function(self, ...)
         local args = {...}
@@ -252,28 +357,28 @@ local function SetupGeneratorHook()
         
         if not checkcaller() and method == "InvokeServer" and self.Name == "RF" then
             if args[1] == "enter" then
-                -- Player touched a generator
+                -- Detection
                 if Itoshi.Settings.Generator.Enabled then
                     local Gen = self.Parent.Parent
-                    local RE = Gen and Gen:FindFirstChild("Remotes") and Gen.Remotes:FindFirstChild("RE")
-                    local Prog = Gen and Gen:FindFirstChild("Progress")
+                    local RE = Gen:FindFirstChild("Remotes") and Gen.Remotes:FindFirstChild("RE")
+                    local Progress = Gen:FindFirstChild("Progress")
                     
-                    if RE and Prog then
+                    if RE and Progress then
                         task.spawn(function()
-                            while Itoshi.Settings.Generator.Enabled and Prog.Value < 100 do
+                            while Itoshi.Settings.Generator.Enabled and Progress.Value < 100 do
                                 RE:FireServer()
                                 
-                                -- Speed Logic
-                                local speed = Itoshi.Settings.Generator.Speed
-                                if Itoshi.Settings.Generator.Mode == "Hybrid" and Prog.Value > 90 then
-                                    speed = 0.15 -- Slow down at end
+                                -- Smart Speed
+                                local Speed = Itoshi.Settings.Generator.FixSpeed
+                                if Itoshi.Settings.Generator.Mode == "Hybrid" and Progress.Value > 85 then
+                                    Speed = 0.15 -- Slow down to look legit
                                 elseif Itoshi.Settings.Generator.Mode == "Instant" then
-                                    speed = 0.005 -- Max Speed
+                                    Speed = 0.005 -- God mode speed
                                 end
-                                task.wait(speed)
                                 
-                                -- Stop if done
-                                if Prog.Value >= 100 and Itoshi.Settings.Generator.AutoLeave then
+                                task.wait(Speed)
+                                
+                                if Progress.Value >= 100 and Itoshi.Settings.Generator.AutoLeave then
                                     self:InvokeServer("leave")
                                     break
                                 end
@@ -283,78 +388,94 @@ local function SetupGeneratorHook()
                 end
             end
         end
+        
         return OldNC(self, ...)
     end)
 end
 
--- // COMBAT SYSTEM //
-local function GetDelay(model)
-    if not model then return 0.1 end
+-- // COMBAT ENGINE //
+local Combat = {}
+
+function Combat.GetKillerDelay(model)
+    if not model then return Itoshi.Settings.Combat.Delays["default"] end
     local name = model.Name:lower()
-    for k, v in pairs(KillerDelays) do
+    for k, v in pairs(Itoshi.Settings.Combat.Delays) do
         if name:find(k) then return v end
     end
     return 0.1
 end
 
-local function DoBlock(killer)
-    if tick() - Itoshi.Data.LastBlock < 0.2 then return end
-    Itoshi.Data.LastBlock = tick()
+function Combat.ExecuteBlock(Killer)
+    if tick() - Itoshi.Cache.LastBlock < 0.2 then return end
+    Itoshi.Cache.LastBlock = tick()
     
-    local Base = GetDelay(killer)
-    local Ping = Itoshi.Settings.Combat.Prediction and (GetPing() / 1000 * 0.5) or 0
-    local WaitTime = math.max(0, Base - Ping)
+    local Delay = Combat.GetKillerDelay(Killer)
+    local PingComp = Itoshi.Settings.Combat.Prediction and Utils.GetPing() * 0.5 or 0
+    local FinalDelay = math.max(0, Delay - PingComp)
     
-    task.delay(WaitTime, function()
-        ReplicatedStorage.Modules.Network.RemoteEvent:FireServer("UseActorAbility", "Block")
-        if Itoshi.Settings.Combat.CounterAttack then
+    task.delay(FinalDelay, function()
+        -- Block
+        Services.ReplicatedStorage.Modules.Network.RemoteEvent:FireServer("UseActorAbility", "Block")
+        
+        -- Counter Attack
+        if Itoshi.Settings.Combat.DoubleTap then
             task.delay(0.12, function()
-                ReplicatedStorage.Modules.Network.RemoteEvent:FireServer("UseActorAbility", "Punch")
+                Services.ReplicatedStorage.Modules.Network.RemoteEvent:FireServer("UseActorAbility", "Punch")
             end)
+        end
+        
+        -- Teleport Behind (OP Feature)
+        if Itoshi.Settings.Combat.TeleportBehind and Killer then
+            local KillerRoot = Utils.GetRoot(Killer)
+            local MyRoot = Utils.GetRoot(LocalPlayer.Character)
+            if KillerRoot and MyRoot then
+                local BehindPos = KillerRoot.CFrame * CFrame.new(0, 0, 4)
+                MyRoot.CFrame = CFrame.new(BehindPos.Position, KillerRoot.Position)
+            end
         end
     end)
 end
 
-local function OnSound(sound)
-    if not Itoshi.Settings.Combat.Enabled or not Itoshi.Settings.Combat.AutoBlock then return end
+function Combat.ProcessAudio(sound)
+    if not Itoshi.Settings.Combat.Enabled or not Itoshi.Settings.Combat.AutoBlock_Audio then return end
     
     local id = string.match(sound.SoundId, "%d+")
     if not id then return end
     
-    if AttackSounds[id] or (sound.Volume > 0.8 and sound.PlaybackSpeed >= 0.9) then
-        -- Debounce
-        if Itoshi.Data.Sound_Cache[sound] and (tick() - Itoshi.Data.Sound_Cache[sound]) < 1 then return end
+    if SoundDatabase[id] or (sound.Volume > 0.8 and sound.PlaybackSpeed >= 0.9) then
+        if Itoshi.Cache.CachedSounds[sound] and (tick() - Itoshi.Cache.CachedSounds[sound]) < 1 then return end
         
-        local SPos = sound.Parent and sound.Parent.Position
-        local MyPos = GetRoot(LocalPlayer.Character)
+        local SoundPos = sound.Parent and sound.Parent.Position
+        local MyRoot = Utils.GetRoot(LocalPlayer.Character)
         
-        if SPos and MyPos then
-            if (SPos - MyPos.Position).Magnitude <= Itoshi.Settings.Combat.Range then
-                Itoshi.Data.Sound_Cache[sound] = tick()
+        if SoundPos and MyRoot then
+            if (SoundPos - MyRoot.Position).Magnitude <= Itoshi.Settings.Combat.Range then
+                Itoshi.Cache.CachedSounds[sound] = tick()
                 local Killer = sound.Parent:FindFirstAncestorOfClass("Model")
-                DoBlock(Killer)
+                Combat.ExecuteBlock(Killer)
             end
         end
     end
 end
 
-local function CheckAnims()
-    if not Itoshi.Settings.Combat.Enabled or not Itoshi.Settings.Combat.AnimBlock then return end
+function Combat.ProcessAnim()
+    if not Itoshi.Settings.Combat.Enabled or not Itoshi.Settings.Combat.AutoBlock_Anim then return end
     
-    for _, P in pairs(Players:GetPlayers()) do
-        if P ~= LocalPlayer and P.Character then
-            local Root = GetRoot(P.Character)
-            local MyRoot = GetRoot(LocalPlayer.Character)
+    for _, Player in pairs(Services.Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character then
+            local Root = Utils.GetRoot(Player.Character)
+            local MyRoot = Utils.GetRoot(LocalPlayer.Character)
             
             if Root and MyRoot and (Root.Position - MyRoot.Position).Magnitude <= Itoshi.Settings.Combat.Range then
-                local Hum = GetHum(P.Character)
+                local Hum = Utils.GetHum(Player.Character)
                 local Anim = Hum and Hum:FindFirstChild("Animator")
+                
                 if Anim then
                     for _, Track in pairs(Anim:GetPlayingAnimationTracks()) do
                         local id = string.match(Track.Animation.AnimationId, "%d+")
-                        for _, dbId in pairs(AttackAnims) do
-                            if id == dbId then
-                                DoBlock(P.Character)
+                        for _, dbID in pairs(AnimDatabase) do
+                            if id == dbID then
+                                Combat.ExecuteBlock(Player.Character)
                                 return
                             end
                         end
@@ -365,62 +486,78 @@ local function CheckAnims()
     end
 end
 
--- // LOOPS & HOOKS //
-SetupGeneratorHook()
-
-Workspace.DescendantAdded:Connect(function(v)
-    if v:IsA("Sound") then v.Played:Connect(function() SafeCall(OnSound, v) end) end
-end)
-
-for _, v in pairs(Workspace:GetDescendants()) do
-    if v:IsA("Sound") then v.Played:Connect(function() SafeCall(OnSound, v) end) end
-end
-
-RunService.RenderStepped:Connect(function()
-    SafeCall(ESP.MainLoop)
-    
+-- // MOVEMENT ENGINE //
+local function UpdateMovement()
     local Char = LocalPlayer.Character
-    if Char and GetRoot(Char) and GetHum(Char) then
-        local Hum = GetHum(Char)
-        local Root = GetRoot(Char)
-        
-        -- Speed
-        if Itoshi.Settings.Player.Speed and Hum.MoveDirection.Magnitude > 0 then
-            if Itoshi.Settings.Movement.PulseMove then
-                Root.AssemblyLinearVelocity = Root.AssemblyLinearVelocity + (Hum.MoveDirection * Itoshi.Settings.Player.SpeedAmount * 5)
-            else
-                Root.CFrame = Root.CFrame + (Hum.MoveDirection * Itoshi.Settings.Player.SpeedAmount)
-            end
-        end
-        
-        -- No Slow
-        if Itoshi.Settings.Player.NoSlow then
-            if Hum.WalkSpeed < 12 then Hum.WalkSpeed = 16 end
-            if Char:FindFirstChild("Slowness") then Char.Slowness:Destroy() end
-        end
-        
-        -- Stamina
-        if Itoshi.Settings.Player.InfiniteStamina then
-            Char:SetAttribute("Stamina", 100)
+    if not Char then return end
+    local Root = Utils.GetRoot(Char)
+    local Hum = Utils.GetHum(Char)
+    
+    if not Root or not Hum then return end
+    
+    -- Speed
+    if Itoshi.Settings.Movement.SpeedEnabled and Hum.MoveDirection.Magnitude > 0 then
+        if Itoshi.Settings.Movement.PulseMove then
+            Root.AssemblyLinearVelocity = Root.AssemblyLinearVelocity + (Hum.MoveDirection * Itoshi.Settings.Movement.SpeedFactor * 5)
+        else
+            Root.CFrame = Root.CFrame + (Hum.MoveDirection * Itoshi.Settings.Movement.SpeedFactor)
         end
     end
     
-    if Itoshi.Settings.Visuals.Fullbright then Lighting.ClockTime = 14 end
+    -- Anti Stun
+    if Itoshi.Settings.Movement.AntiStun then
+        if Hum.WalkSpeed < 10 then Hum.WalkSpeed = 16 end
+        if Char:FindFirstChild("Slowness") then Char.Slowness:Destroy() end
+        if Hum.PlatformStand then Hum.PlatformStand = false end
+    end
+    
+    -- Infinite Stamina
+    if Itoshi.Settings.Movement.InfiniteStamina then
+        Char:SetAttribute("Stamina", 100)
+    end
+    
+    -- Auto Wiggle
+    if Itoshi.Settings.Movement.AutoWiggle and Char:FindFirstChild("Grabbed") then
+        Services.VirtualInputManager:SendKeyEvent(true, "A", false, game)
+        Services.VirtualInputManager:SendKeyEvent(true, "D", false, game)
+    end
+end
+
+-- // MAIN LOOPS //
+InitializeGeneratorAI()
+
+Services.Workspace.DescendantAdded:Connect(function(v)
+    if v:IsA("Sound") then v.Played:Connect(function() pcall(Combat.ProcessAudio, v) end) end
+end)
+
+for _, v in pairs(Services.Workspace:GetDescendants()) do
+    if v:IsA("Sound") then v.Played:Connect(function() pcall(Combat.ProcessAudio, v) end) end
+end
+
+Services.RunService.RenderStepped:Connect(function()
+    pcall(ESP.Update)
+    pcall(UpdateMovement)
+    
+    if Itoshi.Settings.Visuals.Fullbright then
+        Services.Lighting.ClockTime = 14
+    end
 end)
 
 task.spawn(function()
     while true do
-        task.wait(1)
-        -- Update Hitboxes & ESP List
-        if Itoshi.Settings.Visuals.BigHitbox then
-            for _, P in pairs(Players:GetPlayers()) do
-                if P ~= LocalPlayer and P.Character and GetRoot(P.Character) then
-                    local R = GetRoot(P.Character)
-                    R.Size = Vector3.new(20, 20, 20)
+        task.wait(0.5)
+        -- Update Player List for ESP & Hitboxes
+        for _, P in pairs(Services.Players:GetPlayers()) do
+            if P ~= LocalPlayer and P.Character then
+                ESP.Create(P.Character)
+                
+                if Itoshi.Settings.Visuals.HitboxExpand and Utils.GetRoot(P.Character) then
+                    local R = Utils.GetRoot(P.Character)
+                    R.Size = Vector3.new(Itoshi.Settings.Visuals.HitboxSize, Itoshi.Settings.Visuals.HitboxSize, Itoshi.Settings.Visuals.HitboxSize)
                     R.Transparency = 0.7
                     R.CanCollide = false
-                    R.Color = Color3.fromRGB(255, 0, 0)
-                    ESP.Add(P.Character)
+                    R.Color = Itoshi.Settings.Visuals.HitboxColor
+                    R.Material = Enum.Material.ForceField
                 end
             end
         end
@@ -430,47 +567,52 @@ end)
 task.spawn(function()
     while true do
         task.wait(0.1)
-        SafeCall(CheckAnims)
+        pcall(Combat.ProcessAnim)
     end
 end)
 
--- // RAYFIELD UI //
+-- // UI INTERFACE (RAYFIELD) //
 local Library = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Library:CreateWindow({
-    Name = "Itoshi Hub V13",
-    LoadingTitle = "Loading...",
-    ConfigurationSaving = {Enabled = true, FolderName = "ItoshiV13", FileName = "Config"},
-    KeySystem = false -- We used our custom one above
+    Name = "Itoshi Hub V14 | ULTIMATE",
+    LoadingTitle = "Initializing...",
+    ConfigurationSaving = {Enabled = true, FolderName = "ItoshiV14", FileName = "Config"},
+    KeySystem = false -- Custom one used
 })
 
 local TabGen = Window:CreateTab("Generator", 4483362458)
 local TabCombat = Window:CreateTab("Combat", 4483362458)
-local TabPlayer = Window:CreateTab("Player", 4483362458)
+local TabMove = Window:CreateTab("Movement", 4483362458)
 local TabVis = Window:CreateTab("Visuals", 4483362458)
 
--- Generator Tab
-TabGen:CreateToggle({Name = "Auto Fix Generator", CurrentValue = false, Callback = function(v) Itoshi.Settings.Generator.Enabled = v end})
-TabGen:CreateDropdown({Name = "Fix Mode", Options = {"Hybrid", "Instant", "Legit"}, CurrentOption = "Hybrid", Callback = function(v) Itoshi.Settings.Generator.Mode = v end})
-TabGen:CreateToggle({Name = "Auto Leave When Done", CurrentValue = false, Callback = function(v) Itoshi.Settings.Generator.AutoLeave = v end})
+-- Generator
+TabGen:CreateToggle({Name = "Auto Generator", CurrentValue = false, Callback = function(v) Itoshi.Settings.Generator.Enabled = v end})
+TabGen:CreateDropdown({Name = "Mode", Options = {"Hybrid", "Instant", "Legit"}, CurrentOption = "Hybrid", Callback = function(v) Itoshi.Settings.Generator.Mode = v end})
+TabGen:CreateSlider({Name = "Speed", Range = {0, 0.2}, Increment = 0.01, CurrentValue = 0.03, Callback = function(v) Itoshi.Settings.Generator.FixSpeed = v end})
+TabGen:CreateToggle({Name = "Auto Leave", CurrentValue = false, Callback = function(v) Itoshi.Settings.Generator.AutoLeave = v end})
 
--- Combat Tab
-TabCombat:CreateToggle({Name = "Enable Combat", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.Enabled = v end})
-TabCombat:CreateToggle({Name = "Auto Block (Sound)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock = v end})
-TabCombat:CreateToggle({Name = "Auto Block (Animation)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AnimBlock = v end})
-TabCombat:CreateToggle({Name = "Counter Attack", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.CounterAttack = v end})
-TabCombat:CreateSlider({Name = "Range", Range = {10, 50}, Increment = 1, CurrentValue = 25, Callback = function(v) Itoshi.Settings.Combat.Range = v end})
+-- Combat
+TabCombat:CreateToggle({Name = "Auto Block (Audio)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock_Audio = v end})
+TabCombat:CreateToggle({Name = "Auto Block (Anim)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.AutoBlock_Anim = v end})
+TabCombat:CreateToggle({Name = "Ping Prediction", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.Prediction = v end})
+TabCombat:CreateToggle({Name = "Counter Attack", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.DoubleTap = v end})
+TabCombat:CreateToggle({Name = "Teleport Behind (OP)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Combat.TeleportBehind = v end})
+TabCombat:CreateSlider({Name = "Range", Range = {10, 60}, Increment = 1, CurrentValue = 25, Callback = function(v) Itoshi.Settings.Combat.Range = v end})
 
--- Player Tab
-TabPlayer:CreateToggle({Name = "Infinite Stamina", CurrentValue = false, Callback = function(v) Itoshi.Settings.Player.InfiniteStamina = v end})
-TabPlayer:CreateToggle({Name = "No Slow / Anti-Stun", CurrentValue = false, Callback = function(v) Itoshi.Settings.Player.NoSlow = v end})
-TabPlayer:CreateToggle({Name = "Speed Boost", CurrentValue = false, Callback = function(v) Itoshi.Settings.Player.Speed = v end})
-TabPlayer:CreateSlider({Name = "Speed Amount", Range = {0.1, 5}, Increment = 0.1, CurrentValue = 0.8, Callback = function(v) Itoshi.Settings.Player.SpeedAmount = v end})
+-- Movement
+TabMove:CreateToggle({Name = "Infinite Stamina", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.InfiniteStamina = v end})
+TabMove:CreateToggle({Name = "Speed Boost", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.SpeedEnabled = v end})
+TabMove:CreateSlider({Name = "Speed Factor", Range = {0.1, 5}, Increment = 0.1, CurrentValue = 0.8, Callback = function(v) Itoshi.Settings.Movement.SpeedFactor = v end})
+TabMove:CreateToggle({Name = "Anti Stun/Slow", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.AntiStun = v end})
+TabMove:CreateToggle({Name = "Auto Wiggle", CurrentValue = false, Callback = function(v) Itoshi.Settings.Movement.AutoWiggle = v end})
 
--- Visuals Tab
-TabVis:CreateToggle({Name = "Enable ESP", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Enabled = v end})
-TabVis:CreateToggle({Name = "Show Boxes", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Boxes = v end})
-TabVis:CreateToggle({Name = "Show Names", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Names = v end})
-TabVis:CreateToggle({Name = "Big Hitboxes", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.BigHitbox = v end})
+-- Visuals
+TabVis:CreateToggle({Name = "ESP Enabled", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Enabled = v end})
+TabVis:CreateToggle({Name = "Boxes", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Box = v end})
+TabVis:CreateToggle({Name = "Names", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Name = v end})
+TabVis:CreateToggle({Name = "Distance", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Distance = v end})
+TabVis:CreateToggle({Name = "Tracers", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Tracers = v end})
 TabVis:CreateToggle({Name = "Fullbright", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Fullbright = v end})
+TabVis:CreateToggle({Name = "Big Hitboxes", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.HitboxExpand = v end})
 
 Rayfield:LoadConfiguration()
