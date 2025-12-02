@@ -4,7 +4,7 @@ local Services = setmetatable({}, {
     end
 })
 
--- // SERVICES //
+-- // 1. CORE SERVICES //
 local Players = Services.Players
 local Workspace = Services.Workspace
 local ReplicatedStorage = Services.ReplicatedStorage
@@ -17,13 +17,13 @@ local Stats = Services.Stats
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- // CONFIGURATION & STATE //
+-- // 2. SYSTEM CONFIGURATION //
 local Itoshi = {
     Config = {
         Combat = {
             Enabled = true,
             AudioBlock = true,
-            AnimBlock = true,
+            AnimBlock = true, -- ميزة الأنيميشن رجعت
             Prediction = true,
             Range = 25,
             DoubleTap = true,
@@ -41,7 +41,7 @@ local Itoshi = {
         },
         Generator = {
             Enabled = true,
-            Mode = "Hybrid", -- Hybrid, Instant, Legit
+            Mode = "Hybrid",
             FixSpeed = 0.03,
             AutoLeave = true
         },
@@ -69,52 +69,23 @@ local Itoshi = {
     }
 }
 
--- // FULL DATABASE (NO ABBREVIATIONS) //
+-- // 3. FULL DATABASES (NO SHORTCUTS) //
 local TargetSounds = {
-    ["102228729296384"] = true,
-    ["140242176732868"] = true,
-    ["112809109188560"] = true,
-    ["136323728355613"] = true,
-    ["115026634746636"] = true,
-    ["84116622032112"] = true,
-    ["108907358619313"] = true,
-    ["127793641088496"] = true,
-    ["86174610237192"] = true,
-    ["95079963655241"] = true,
-    ["101199185291628"] = true,
-    ["119942598489800"] = true,
-    ["84307400688050"] = true,
-    ["113037804008732"] = true,
-    ["105200830849301"] = true,
-    ["75330693422988"] = true,
-    ["82221759983649"] = true,
-    ["81702359653578"] = true,
-    ["108610718831698"] = true,
-    ["112395455254818"] = true,
-    ["109431876587852"] = true,
-    ["109348678063422"] = true,
-    ["85853080745515"] = true,
-    ["12222216"] = true,
-    ["105840448036441"] = true,
-    ["114742322778642"] = true,
-    ["119583605486352"] = true,
-    ["79980897195554"] = true,
-    ["71805956520207"] = true,
-    ["79391273191671"] = true,
-    ["89004992452376"] = true,
-    ["101553872555606"] = true,
-    ["101698569375359"] = true,
-    ["106300477136129"] = true,
-    ["116581754553533"] = true,
-    ["117231507259853"] = true,
-    ["119089145505438"] = true,
-    ["121954639447247"] = true,
-    ["125213046326879"] = true,
-    ["131406927389838"] = true,
-    ["71834552297085"] = true,
-    ["805165833096"] = true,
-    ["125403313786645"] = true,
-    ["83829782357897"] = true
+    ["102228729296384"] = true, ["140242176732868"] = true, ["112809109188560"] = true,
+    ["136323728355613"] = true, ["115026634746636"] = true, ["84116622032112"] = true,
+    ["108907358619313"] = true, ["127793641088496"] = true, ["86174610237192"] = true,
+    ["95079963655241"] = true, ["101199185291628"] = true, ["119942598489800"] = true,
+    ["84307400688050"] = true, ["113037804008732"] = true, ["105200830849301"] = true,
+    ["75330693422988"] = true, ["82221759983649"] = true, ["81702359653578"] = true,
+    ["108610718831698"] = true, ["112395455254818"] = true, ["109431876587852"] = true,
+    ["109348678063422"] = true, ["85853080745515"] = true, ["12222216"] = true,
+    ["105840448036441"] = true, ["114742322778642"] = true, ["119583605486352"] = true,
+    ["79980897195554"] = true, ["71805956520207"] = true, ["79391273191671"] = true,
+    ["89004992452376"] = true, ["101553872555606"] = true, ["101698569375359"] = true,
+    ["106300477136129"] = true, ["116581754553533"] = true, ["117231507259853"] = true,
+    ["119089145505438"] = true, ["121954639447247"] = true, ["125213046326879"] = true,
+    ["131406927389838"] = true, ["71834552297085"] = true, ["805165833096"] = true,
+    ["125403313786645"] = true, ["83829782357897"] = true
 }
 
 local TargetAnims = {
@@ -127,7 +98,7 @@ local TargetAnims = {
     "879895330952"
 }
 
--- // UTILITY FUNCTIONS //
+-- // 4. UTILITY FUNCTIONS //
 local function GetRoot(char) 
     return char and char:FindFirstChild("HumanoidRootPart") 
 end
@@ -144,7 +115,7 @@ local function GetPing()
     return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
 end
 
--- // CUSTOM ESP SYSTEM //
+-- // 5. CUSTOM ESP SYSTEM //
 local ESP = {}
 function ESP.Create(Model)
     if Itoshi.Cache.EspObjects[Model] then return end
@@ -199,7 +170,7 @@ function ESP.Update()
     end
 end
 
--- // GENERATOR AI (HYBRID & INSTANT) //
+-- // 6. GENERATOR AI (HYBRID & INSTANT) //
 local function InitGeneratorAI()
     local OldNC
     OldNC = hookmetamethod(game, "__namecall", function(self, ...)
@@ -220,20 +191,20 @@ local function InitGeneratorAI()
                                     break
                                 end
                                 
-                                -- SEND FIX SIGNAL
+                                -- FIX SIGNAL
                                 RE:FireServer()
                                 
-                                -- SPEED LOGIC
+                                -- SPEED CONTROL
                                 if Itoshi.Config.Generator.Mode == "Hybrid" then
                                     if Prog.Value < 90 then
                                         task.wait(Itoshi.Config.Generator.FixSpeed)
                                     else
-                                        task.wait(0.1) -- Slow down at end
+                                        task.wait(0.1)
                                     end
                                 elseif Itoshi.Config.Generator.Mode == "Instant" then
-                                    task.wait(0.005) -- Max Speed
+                                    task.wait(0.005)
                                 else
-                                    task.wait(0.15) -- Legit
+                                    task.wait(0.15)
                                 end
                             end
                         end
@@ -247,7 +218,7 @@ local function InitGeneratorAI()
     end)
 end
 
--- // COMBAT ENGINE //
+-- // 7. COMBAT ENGINE (AUDIO + ANIMATION) //
 local function GetKillerDelay(model)
     if not model then return 0.1 end
     local name = model.Name:lower()
@@ -325,7 +296,7 @@ function Combat.ProcessAnimation()
     end
 end
 
--- // INITIALIZATION & LOOPS //
+-- // 8. MAIN LOOPS //
 InitGeneratorAI()
 
 Workspace.DescendantAdded:Connect(function(v)
@@ -340,6 +311,7 @@ RunService.RenderStepped:Connect(function()
     
     local Char = LocalPlayer.Character
     if Char and GetRoot(Char) and GetHum(Char) then
+        -- Speed
         if Itoshi.Config.Movement.SpeedEnabled and GetHum(Char).MoveDirection.Magnitude > 0 then
             local Root = GetRoot(Char)
             if Itoshi.Config.Movement.PulseMove then
@@ -348,12 +320,19 @@ RunService.RenderStepped:Connect(function()
                 Root.CFrame = Root.CFrame + (GetHum(Char).MoveDirection * Itoshi.Config.Movement.SpeedFactor)
             end
         end
+        
+        -- Anti Stun/Slow
         if Itoshi.Config.Movement.AntiStun then
             if GetHum(Char).WalkSpeed < 10 then GetHum(Char).WalkSpeed = 16 end
-            if Char:FindFirstChild("Slowness") then Char.Slowness:Destroy() end
+            local Slow = Char:FindFirstChild("Slowness") or Char:FindFirstChild("Stun")
+            if Slow then Slow:Destroy() end
         end
-        if Itoshi.Config.Movement.InfiniteStamina and LocalPlayer:FindFirstChild("Stamina") then
-            LocalPlayer.Stamina.Value = 100
+        
+        -- Infinite Stamina (Fixed)
+        if Itoshi.Config.Movement.InfiniteStamina then
+            Char:SetAttribute("Stamina", 100)
+            local SVal = Char:FindFirstChild("Stamina")
+            if SVal and SVal:IsA("NumberValue") then SVal.Value = 100 end
         end
     end
     
@@ -385,15 +364,15 @@ task.spawn(function()
     end
 end)
 
--- // UI SETUP //
+-- // 9. UI SETUP //
 local Library = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Library:CreateWindow({
-    Name = "Itoshi Hub V9 ",
-    LoadingTitle = "Full Database Loaded",
-    ConfigurationSaving = {Enabled = true, FolderName = "ItoshiV9", FileName = "Cfg"},
+    Name = "Itoshi Hub V11",
+    LoadingTitle = "Loading Script...",
+    ConfigurationSaving = {Enabled = true, FolderName = "ItoshiV11", FileName = "Cfg"},
     KeySystem = true,
     KeySettings = {
-        Title = "Authentication",
+        Title = "key system",
         Subtitle = "Enter Key",
         Note = "Key: FFDGDLFYUFOHDWHHFXX",
         FileName = "Key",
@@ -418,6 +397,7 @@ TabCombat:CreateToggle({Name = "Ping Prediction", CurrentValue = true, Callback 
 TabCombat:CreateToggle({Name = "Double Tap", CurrentValue = true, Callback = function(v) Itoshi.Config.Combat.DoubleTap = v end})
 TabCombat:CreateSlider({Name = "Range", Range = {10, 60}, Increment = 1, CurrentValue = 25, Callback = function(v) Itoshi.Config.Combat.Range = v end})
 
+TabMove:CreateToggle({Name = "Infinite Stamina", CurrentValue = true, Callback = function(v) Itoshi.Config.Movement.InfiniteStamina = v end})
 TabMove:CreateToggle({Name = "Speed", CurrentValue = false, Callback = function(v) Itoshi.Config.Movement.SpeedEnabled = v end})
 TabMove:CreateSlider({Name = "Factor", Range = {0.1, 5}, Increment = 0.1, CurrentValue = 0.8, Callback = function(v) Itoshi.Config.Movement.SpeedFactor = v end})
 TabMove:CreateToggle({Name = "Anti Stun", CurrentValue = true, Callback = function(v) Itoshi.Config.Movement.AntiStun = v end})
