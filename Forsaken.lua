@@ -1,8 +1,12 @@
+-- [[ ITOSHI HUB: THE MASTERPIECE (REVERSE ENGINEERED) ]] --
+-- ARCHITECTURE: ADVANCED AI + NATIVE BYPASS + DATA DRIVEN
+
 local getgenv = getgenv or function() return _G end
 local cloneref = cloneref or function(o) return o end
-local hookmeta = hookmetamethod or function(...) end
+local hookmetamethod = hookmetamethod or function(...) end
 local Services = setmetatable({}, {__index = function(t, k) return cloneref(game:GetService(k)) end})
 
+-- // 1. CORE SERVICES //
 local Players = Services.Players
 local RunService = Services.RunService
 local Workspace = Services.Workspace
@@ -11,38 +15,70 @@ local CoreGui = Services.CoreGui
 local VirtualInputManager = Services.VirtualInputManager
 local Lighting = Services.Lighting
 local PathfindingService = Services.PathfindingService
-local ProximityPromptService = Services.ProximityPromptService
 local ReplicatedStorage = Services.ReplicatedStorage
+local Stats = Services.Stats
+local Debris = Services.Debris
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
+-- // 2. THE DATABASE (SOUNDS & ANIMS) //
+-- Extracted from top-tier scripts for maximum detection
+local Database = {
+    Sounds = {
+        ["102228729296384"] = true, ["140242176732868"] = true, ["112809109188560"] = true,
+        ["136323728355613"] = true, ["115026634746636"] = true, ["84116622032112"] = true,
+        ["108907358619313"] = true, ["127793641088496"] = true, ["86174610237192"] = true,
+        ["95079963655241"] = true, ["101199185291628"] = true, ["119942598489800"] = true,
+        ["84307400688050"] = true, ["113037804008732"] = true, ["105200830849301"] = true,
+        ["75330693422988"] = true, ["82221759983649"] = true, ["81702359653578"] = true,
+        ["108610718831698"] = true, ["112395455254818"] = true, ["109431876587852"] = true,
+        ["109348678063422"] = true, ["85853080745515"] = true, ["12222216"] = true
+    },
+    Anims = {
+        "126830014841198", "126355327951215", "121086746534252", "18885909645",
+        "98456918873918", "105458270463374", "83829782357897", "125403313786645",
+        "118298475669935", "82113744478546", "70371667919898", "99135633258223"
+    },
+    Keywords = {"attack", "slash", "swing", "punch", "lunge", "throw", "cast", "m1", "action"}
+}
+
+-- // 3. CONFIGURATION //
 local Itoshi = {
     Settings = {
         Combat = {
             KillAura = {Enabled = true, Range = 25, Speed = "Hyper", Rotate = true},
-            AutoBlock = {Enabled = true, Mode = "Hybrid", Range = 18, Reaction = 0, Duration = 0.5, AutoFace = true},
-            Hitbox = {Enabled = true, Size = 20, Transparency = 0.6, Reach = true}
+            AutoBlock = {
+                Enabled = true, 
+                Mode = "Hybrid", -- Sound + Anim + Distance
+                Range = 25, 
+                Reaction = 0, 
+                Duration = 0.8, 
+                AutoFace = true,
+                Predict = true
+            },
+            Hitbox = {Enabled = true, Size = 25, Transparency = 0.6, Reach = true}
         },
         Utility = {
             AutoGenerator = {
                 Enabled = false, 
-                Method = "Pathfinding", 
-                Speed = 22,
-                TeleportPrompt = true
-            },
-            Puzzles = {
-                AutoSkillCheck = true, -- For Spacebar checks
-                AutoSolve = true,      -- For Complex Puzzles (Wires/Flow)
-                SolveDelay = 1.5       -- Time to wait before solving (Safety)
+                Method = "Pathfinding", -- Safe Walk
+                AutoSkill = true,       -- Spacebar
+                AutoWires = true,       -- Connecting dots
+                Speed = 22
             },
             AutoHeal = {Enabled = true, Threshold = 40},
             AntiStun = {Enabled = true}
         },
+        Movement = { -- Optional/Manual
+            Fly = {Enabled = false, Speed = 1},
+            Speed = {Enabled = false, Val = 0.5},
+            NoClip = {Enabled = false}
+        },
         Visuals = {
             ESP = {Enabled = false},
-            MobileUI = false,
-            Fullbright = false
+            Fullbright = false,
+            MobileUI = false
         }
     },
     State = {
@@ -50,17 +86,17 @@ local Itoshi = {
         LastBlock = 0,
         LastAttack = 0,
         IsMovingToGen = false,
-        Solving = false
+        SolvedWires = {}
     },
     Cache = {
         Targets = {},
         Generators = {},
         ESP = {},
-        Remotes = {}
-    },
-    Keywords = {"attack", "slash", "swing", "punch", "lunge", "throw", "cast", "m1", "action"}
+        SoundHooks = {}
+    }
 }
 
+-- // 4. CORE FUNCTIONS //
 local function SecureCall(func, ...)
     local s, r = pcall(func, ...)
     if not s then return nil end
@@ -68,35 +104,39 @@ local function SecureCall(func, ...)
 end
 
 local function GetRoot(Char)
-    return Char:FindFirstChild("HumanoidRootPart")
+    return Char:FindFirstChild("HumanoidRootPart") or Char:FindFirstChild("Torso")
 end
 
--- KEY SYSTEM
+local function GetHum(Char)
+    return Char:FindFirstChild("Humanoid")
+end
+
+-- // 5. AUTHENTICATION //
 local function LoadKeySystem()
     if getgenv().ItoshiAuth then return end
     local S = Instance.new("ScreenGui")
     S.Parent = CoreGui
     S.Name = "ItoshiAuth"
     local F = Instance.new("Frame")
-    F.Size = UDim2.new(0, 300, 0, 150)
-    F.Position = UDim2.new(0.5, -150, 0.5, -75)
-    F.BackgroundColor3 = Color3.fromRGB(12, 12, 15)
+    F.Size = UDim2.new(0, 320, 0, 160)
+    F.Position = UDim2.new(0.5, -160, 0.5, -80)
+    F.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
     F.Parent = S
     
     local B = Instance.new("TextBox")
     B.Size = UDim2.new(0.8, 0, 0.3, 0)
     B.Position = UDim2.new(0.1, 0, 0.3, 0)
-    B.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    B.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     B.TextColor3 = Color3.new(1,1,1)
     B.Text = ""
-    B.PlaceholderText = "Enter Key..."
+    B.PlaceholderText = "Key..."
     B.Parent = F
     
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(0.8, 0, 0.25, 0)
     Btn.Position = UDim2.new(0.1, 0, 0.7, 0)
-    Btn.Text = "INJECT SOLVER"
-    Btn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+    Btn.Text = "INJECT MASTERPIECE"
+    Btn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
     Btn.Parent = F
     
     local V = false
@@ -105,101 +145,61 @@ local function LoadKeySystem()
             V = true
             getgenv().ItoshiAuth = true
             S:Destroy()
-        else
-            B.Text = "INVALID"
-            task.wait(1)
-            B.Text = ""
         end
     end)
     repeat task.wait(0.1) until V
 end
 LoadKeySystem()
 
--- MOBILE UI
-local MobileManager = {}
-function MobileManager.Toggle()
-    if Itoshi.Cache.MobileGui then Itoshi.Cache.MobileGui:Destroy() Itoshi.Cache.MobileGui = nil end
-    if not Itoshi.Settings.Visuals.MobileUI then return end
-    local S = Instance.new("ScreenGui", CoreGui)
-    Itoshi.Cache.MobileGui = S
-    local function B(T, P, F)
-        local Btn = Instance.new("TextButton", S)
-        Btn.Size = UDim2.new(0,50,0,50)
-        Btn.Position = P
-        Btn.BackgroundColor3 = Color3.new(0,0,0)
-        Btn.BackgroundTransparency = 0.5
-        Btn.TextColor3 = Color3.new(1,1,1)
-        Btn.Text = T
-        Btn.MouseButton1Click:Connect(F)
-        Instance.new("UICorner", Btn).CornerRadius = UDim.new(1,0)
-    end
-    B("FLY", UDim2.new(0.85, 0, 0.6, 0), function() 
-        -- Fly Toggle Logic
-    end)
-end
+-- // 6. GENERATOR AI (PUZZLE SOLVER) //
+local GenSys = {}
 
--- PUZZLE SOLVER (THE FIX)
-local PuzzleSys = {}
-
-function PuzzleSys.FindRemotes()
-    -- Scan for puzzle completion remotes
-    if not Itoshi.Cache.Remotes.Complete then
-        for _, v in pairs(ReplicatedStorage:GetDescendants()) do
-            if v:IsA("RemoteEvent") and (v.Name:lower():find("complete") or v.Name:lower():find("finish") or v.Name:lower():find("puzzle")) then
-                Itoshi.Cache.Remotes.Complete = v
-            end
-        end
-    end
-end
-
-function PuzzleSys.Solve()
-    if not Itoshi.Settings.Utility.Puzzles.AutoSolve then return end
-    if Itoshi.State.Solving then return end
-    
+function GenSys.SolveWires()
+    if not Itoshi.Settings.Utility.AutoGenerator.AutoWires then return end
     local Gui = LocalPlayer:FindFirstChild("PlayerGui")
     if not Gui then return end
     
+    -- Intelligent UI Scanner
     for _, G in pairs(Gui:GetChildren()) do
         if G:IsA("ScreenGui") and G.Enabled then
-            -- Detect Complex Puzzles (Not Skill Checks)
-            if G.Name:lower():find("puzzle") or G.Name:lower():find("generator") or G:FindFirstChild("Grid") then
-                
-                Itoshi.State.Solving = true
-                
-                -- 1. Wait Safety Delay
-                task.wait(Itoshi.Settings.Utility.Puzzles.SolveDelay)
-                
-                -- 2. Try to find a "Solve" or "Done" remote/function
-                PuzzleSys.FindRemotes()
-                if Itoshi.Cache.Remotes.Complete then
-                    Itoshi.Cache.Remotes.Complete:FireServer(true) -- Try generic boolean
-                    Itoshi.Cache.Remotes.Complete:FireServer()     -- Try empty
-                else
-                    -- 3. Fallback: Click all buttons (Brute Force)
-                    for _, B in pairs(G:GetDescendants()) do
-                        if (B:IsA("ImageButton") or B:IsA("TextButton")) and B.Visible then
-                            local pos = B.AbsolutePosition + (B.AbsoluteSize/2)
-                            VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true, game, 1)
-                            VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
-                        end
-                    end
+            -- Wires Logic (Color Matching)
+            local Colors = {}
+            for _, B in pairs(G:GetDescendants()) do
+                if (B:IsA("ImageButton") or B:IsA("TextButton")) and B.Visible then
+                    local Col = tostring(B.BackgroundColor3)
+                    if not Colors[Col] then Colors[Col] = {} end
+                    table.insert(Colors[Col], B)
                 end
-                
-                Itoshi.State.Solving = false
-                return
+            end
+            
+            for _, Pair in pairs(Colors) do
+                if #Pair == 2 then
+                    -- Simulate Drag/Click
+                    local P1 = Pair[1].AbsolutePosition + (Pair[1].AbsoluteSize/2)
+                    local P2 = Pair[2].AbsolutePosition + (Pair[2].AbsoluteSize/2)
+                    
+                    VirtualInputManager:SendMouseButtonEvent(P1.X, P1.Y+30, 0, true, game, 1)
+                    task.wait()
+                    VirtualInputManager:SendMouseButtonEvent(P1.X, P1.Y+30, 0, false, game, 1)
+                    task.wait(0.05)
+                    VirtualInputManager:SendMouseButtonEvent(P2.X, P2.Y+30, 0, true, game, 1)
+                    task.wait()
+                    VirtualInputManager:SendMouseButtonEvent(P2.X, P2.Y+30, 0, false, game, 1)
+                end
             end
         end
     end
 end
 
-function PuzzleSys.SkillCheck()
-    if not Itoshi.Settings.Utility.Puzzles.AutoSkillCheck then return end
+function GenSys.SkillCheck()
+    if not Itoshi.Settings.Utility.AutoGenerator.AutoSkill then return end
     local Gui = LocalPlayer:FindFirstChild("PlayerGui")
     if not Gui then return end
     
     for _, G in pairs(Gui:GetChildren()) do
         if G:IsA("ScreenGui") and G.Enabled then
-            local Bar = G:FindFirstChild("Bar", true) or G:FindFirstChild("Cursor", true)
+            -- Look for Bar/Cursor
+            local Bar = G:FindFirstChild("Bar", true) or G:FindFirstChild("Cursor", true) or G:FindFirstChild("Pointer", true)
             if Bar and Bar.Visible then
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
                 task.wait(0.05)
@@ -209,14 +209,45 @@ function PuzzleSys.SkillCheck()
     end
 end
 
--- GENERATOR LOGIC
-local GenSys = {}
+function GenSys.MoveTo(TargetPos)
+    local Char = LocalPlayer.Character
+    local Hum = GetHum(Char)
+    local Root = GetRoot(Char)
+    if not Hum or not Root then return end
+    
+    Hum.PlatformStand = false
+    
+    -- Advanced Pathfinding
+    local Path = PathfindingService:CreatePath({
+        AgentRadius = 2, AgentHeight = 5, AgentCanJump = true, WaypointSpacing = 4
+    })
+    
+    local S, E = pcall(function() Path:ComputeAsync(Root.Position, TargetPos) end)
+    
+    if S and Path.Status == Enum.PathStatus.Success then
+        for _, WP in pairs(Path:GetWaypoints()) do
+            if not Itoshi.Settings.Utility.AutoGenerator.Enabled then break end
+            
+            if WP.Action == Enum.PathWaypointAction.Jump then Hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            Hum:MoveTo(WP.Position)
+            
+            -- Speed Limit
+            if Hum.WalkSpeed < 22 then Hum.WalkSpeed = 22 end
+            
+            local T = 0
+            repeat task.wait(0.1) T=T+0.1 until (Root.Position - WP.Position).Magnitude < 4 or T > 2
+        end
+    else
+        Hum:MoveTo(TargetPos)
+    end
+end
+
 function GenSys.Update()
-    if not Itoshi.Settings.Utility.AutoGenerator.Enabled then Itoshi.State.IsMovingToGen = false return end
+    if not Itoshi.Settings.Utility.AutoGenerator.Enabled then return end
     local MyRoot = GetRoot(LocalPlayer.Character)
     if not MyRoot then return end
     
-    -- Refresh Cache
+    -- Refresh Generators
     if tick() % 1 < 0.1 then
         table.clear(Itoshi.Cache.Generators)
         for _, v in pairs(Workspace:GetDescendants()) do
@@ -226,7 +257,6 @@ function GenSys.Update()
         end
     end
     
-    -- Find Closest
     local Closest, Min = nil, 9999
     for _, G in pairs(Itoshi.Cache.Generators) do
         if G.Parent then
@@ -238,114 +268,129 @@ function GenSys.Update()
     if Closest and Closest.Parent then
         local Pos = Closest.Parent.Position
         if Min > 8 then
-            -- Move (Safe Pathfinding)
             if not Itoshi.State.IsMovingToGen then
                 Itoshi.State.IsMovingToGen = true
                 task.spawn(function()
-                    local Path = PathfindingService:CreatePath()
-                    Path:ComputeAsync(MyRoot.Position, Pos)
-                    if Path.Status == Enum.PathStatus.Success then
-                        for _, WP in pairs(Path:GetWaypoints()) do
-                            if not Itoshi.Settings.Utility.AutoGenerator.Enabled then break end
-                            if WP.Action == Enum.PathWaypointAction.Jump then LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end
-                            LocalPlayer.Character.Humanoid:MoveTo(WP.Position)
-                            LocalPlayer.Character.Humanoid.WalkSpeed = Itoshi.Settings.Utility.AutoGenerator.Speed
-                            local T=0 repeat task.wait(0.1) T=T+0.1 until (MyRoot.Position-WP.Position).Magnitude<4 or T>2
-                        end
-                    end
+                    GenSys.MoveTo(Pos)
                     Itoshi.State.IsMovingToGen = false
                 end)
             end
         else
-            -- Interact & Solve
+            -- Interaction
             LocalPlayer.Character.Humanoid:MoveTo(MyRoot.Position)
-            if Itoshi.Settings.Utility.AutoGenerator.TeleportPrompt then
-                fireproximityprompt(Closest)
-            end
-            PuzzleSys.SkillCheck()
-            PuzzleSys.Solve()
+            fireproximityprompt(Closest)
+            GenSys.SkillCheck()
+            GenSys.SolveWires()
         end
     end
 end
 
--- COMBAT
+-- // 7. COMBAT SYSTEM (HYBRID) //
 local Combat = {}
-function Combat.RefreshTargets()
-    table.clear(Itoshi.Cache.Targets)
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then table.insert(Itoshi.Cache.Targets, p.Character) end
-    end
-    for _, v in pairs(Workspace:GetDescendants()) do
-        if v:IsA("Model") and v:FindFirstChild("Humanoid") and v ~= LocalPlayer.Character and not Players:GetPlayerFromCharacter(v) then
-            table.insert(Itoshi.Cache.Targets, v)
+
+function Combat.ExtractSoundID(Sound)
+    if not Sound then return nil end
+    return Sound.SoundId:match("%d+")
+end
+
+function Combat.IsAttacking(Target)
+    -- 1. Sound Detection (FAST)
+    local Root = GetRoot(Target)
+    if Root then
+        for _, S in pairs(Root:GetChildren()) do
+            if S:IsA("Sound") and S.Playing then
+                local ID = Combat.ExtractSoundID(S)
+                if Database.Sounds[ID] then
+                    if not Itoshi.Cache.SoundHooks[S] or (tick() - Itoshi.Cache.SoundHooks[S] > 0.5) then
+                        Itoshi.Cache.SoundHooks[S] = tick()
+                        return true
+                    end
+                end
+            end
         end
     end
+    
+    -- 2. Animation Detection (BACKUP)
+    local Hum = GetHum(Target)
+    local Anim = Hum and Hum:FindFirstChild("Animator")
+    if Anim then
+        for _, T in pairs(Anim:GetPlayingAnimationTracks()) do
+            local Name = T.Name:lower()
+            local ID = T.Animation.AnimationId:match("%d+")
+            
+            -- Check ID or Keywords or Priority
+            if Database.Anims[ID] then return true end
+            if T.Priority.Value >= 2 then
+                for _, K in pairs(Itoshi.Keywords) do
+                    if string.find(Name, K) then return true end
+                end
+            end
+        end
+    end
+    return false
 end
 
 function Combat.Update()
     local MyRoot = GetRoot(LocalPlayer.Character)
     if not MyRoot then return end
     
-    -- Kill Aura
-    if Itoshi.Settings.Combat.KillAura.Enabled then
-        for _, Target in pairs(Itoshi.Cache.Targets) do
-            local TRoot = GetRoot(Target)
-            if TRoot and (MyRoot.Position - TRoot.Position).Magnitude <= Itoshi.Settings.Combat.KillAura.Range then
+    -- Refresh Targets (Slowly)
+    if tick() % 0.5 < 0.1 then
+        table.clear(Itoshi.Cache.Targets)
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then table.insert(Itoshi.Cache.Targets, p.Character) end
+        end
+        for _, v in pairs(Workspace:GetDescendants()) do
+            if v:IsA("Model") and v:FindFirstChild("Humanoid") and not Players:GetPlayerFromCharacter(v) and v ~= LocalPlayer.Character then
+                table.insert(Itoshi.Cache.Targets, v)
+            end
+        end
+    end
+
+    -- Logic
+    for _, Target in pairs(Itoshi.Cache.Targets) do
+        local TRoot = GetRoot(Target)
+        if TRoot then
+            local Dist = (MyRoot.Position - TRoot.Position).Magnitude
+            
+            -- KILL AURA
+            if Itoshi.Settings.Combat.KillAura.Enabled and Dist <= Itoshi.Settings.Combat.KillAura.Range then
                 if Itoshi.Settings.Combat.KillAura.Rotate then
                     MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TRoot.Position.X, MyRoot.Position.Y, TRoot.Position.Z))
                 end
-                if tick() - Itoshi.State.LastAttack > Itoshi.Settings.Combat.KillAura.Speed then
-                    local T = LocalPlayer.Character:FindFirstChildOfClass("Tool")
-                    if T then T:Activate() end
+                
+                if tick() - Itoshi.State.LastAttack > 0.05 then
+                    local Tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                    if Tool then Tool:Activate() end
                     VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
                     VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
                     Itoshi.State.LastAttack = tick()
                 end
-                break
             end
-        end
-    end
-    
-    -- Auto Block
-    if Itoshi.Settings.Combat.AutoBlock.Enabled then
-        if not Itoshi.State.Blocking and (tick() - Itoshi.State.LastBlock > 0.1) then
-            for _, Target in pairs(Itoshi.Cache.Targets) do
-                local TRoot = GetRoot(Target)
-                if TRoot and (MyRoot.Position - TRoot.Position).Magnitude <= Itoshi.Settings.Combat.AutoBlock.Range then
-                    -- Check Anim
-                    local IsAttacking = false
-                    local Anim = Target:FindFirstChild("Humanoid") and Target.Humanoid:FindFirstChild("Animator")
-                    if Anim then
-                        for _, T in pairs(Anim:GetPlayingAnimationTracks()) do
-                            if T.Priority.Value >= 2 then IsAttacking = true break end
-                        end
+            
+            -- AUTO BLOCK
+            if Itoshi.Settings.Combat.AutoBlock.Enabled and Dist <= Itoshi.Settings.Combat.AutoBlock.Range then
+                if Combat.IsAttacking(Target) and not Itoshi.State.Blocking and (tick() - Itoshi.State.LastBlock > 0.1) then
+                    if Itoshi.Settings.Combat.AutoBlock.AutoFace then
+                        MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TRoot.Position.X, MyRoot.Position.Y, TRoot.Position.Z))
                     end
                     
-                    if IsAttacking then
-                        if Itoshi.Settings.Combat.AutoBlock.AutoFace then
-                            MyRoot.CFrame = CFrame.new(MyRoot.Position, Vector3.new(TRoot.Position.X, MyRoot.Position.Y, TRoot.Position.Z))
-                        end
-                        Itoshi.State.Blocking = true
-                        Itoshi.State.LastBlock = tick()
-                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
-                        task.delay(Itoshi.Settings.Combat.AutoBlock.Duration, function()
-                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
-                            Itoshi.State.Blocking = false
-                        end)
-                        break
-                    end
+                    Itoshi.State.Blocking = true
+                    Itoshi.State.LastBlock = tick()
+                    
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                    
+                    task.delay(Itoshi.Settings.Combat.AutoBlock.Duration, function()
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                        Itoshi.State.Blocking = false
+                    end)
                 end
             end
-        end
-    end
-    
-    -- Hitbox
-    if Itoshi.Settings.Combat.Hitbox.Enabled then
-        for _, Target in pairs(Itoshi.Cache.Targets) do
-            local TRoot = GetRoot(Target)
-            if TRoot then
+            
+            -- HITBOX REACH
+            if Itoshi.Settings.Combat.Hitbox.Enabled then
                 TRoot.Size = Vector3.new(Itoshi.Settings.Combat.Hitbox.Size, Itoshi.Settings.Combat.Hitbox.Size, Itoshi.Settings.Combat.Hitbox.Size)
                 TRoot.Transparency = Itoshi.Settings.Combat.Hitbox.Transparency
                 TRoot.CanCollide = false
@@ -357,36 +402,35 @@ function Combat.Update()
     end
 end
 
--- UI
+-- // 8. UI //
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = "Itoshi Hub",
-    LoadingTitle = "Puzzle Solver...",
+    LoadingTitle = "Masterpiece Loaded",
     ConfigurationSaving = {Enabled = true, FolderName = "ItoshiHub", FileName = "Cfg"},
     KeySystem = false, 
 })
 
 local TabC = Window:CreateTab("Combat", 4483362458)
-local TabGen = Window:CreateTab("Puzzles", 4483362458)
+local TabGen = Window:CreateTab("Utility", 4483362458)
 local TabV = Window:CreateTab("Visuals", 4483362458)
 
 TabC:CreateToggle({Name = "Kill Aura", CurrentValue = true, Callback = function(v) Itoshi.Settings.Combat.KillAura.Enabled = v end})
-TabC:CreateToggle({Name = "Auto Block", CurrentValue = true, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Enabled = v end})
+TabC:CreateToggle({Name = "Auto Block (Sound+Anim)", CurrentValue = true, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Enabled = v end})
+TabC:CreateSlider({Name = "Block Range", Range = {5, 50}, Increment = 1, CurrentValue = 25, Callback = function(v) Itoshi.Settings.Combat.AutoBlock.Range = v end})
 TabC:CreateToggle({Name = "Hitbox Reach", CurrentValue = true, Callback = function(v) Itoshi.Settings.Combat.Hitbox.Enabled = v end})
+TabC:CreateSlider({Name = "Hitbox Size", Range = {2, 50}, Increment = 1, CurrentValue = 20, Callback = function(v) Itoshi.Settings.Combat.Hitbox.Size = v end})
 
-TabGen:CreateSection("Generator")
-TabGen:CreateToggle({Name = "Auto Generator (Walk)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Utility.AutoGenerator.Enabled = v end})
-TabGen:CreateSlider({Name = "Walk Speed", Range = {16, 50}, Increment = 1, CurrentValue = 22, Callback = function(v) Itoshi.Settings.Utility.AutoGenerator.Speed = v end})
-
-TabGen:CreateSection("Solver")
-TabGen:CreateToggle({Name = "Auto Skill Check (Space)", CurrentValue = true, Callback = function(v) Itoshi.Settings.Utility.Puzzles.AutoSkillCheck = v end})
-TabGen:CreateToggle({Name = "Auto Solve Puzzles (Complex)", CurrentValue = true, Callback = function(v) Itoshi.Settings.Utility.Puzzles.AutoSolve = v end})
-TabGen:CreateSlider({Name = "Solve Delay (Safety)", Range = {0, 5}, Increment = 0.5, CurrentValue = 1.5, Callback = function(v) Itoshi.Settings.Utility.Puzzles.SolveDelay = v end})
+TabGen:CreateSection("Engineer AI")
+TabGen:CreateToggle({Name = "Auto Generator (Pathfind)", CurrentValue = false, Callback = function(v) Itoshi.Settings.Utility.AutoGenerator.Enabled = v end})
+TabGen:CreateToggle({Name = "Auto Skill Check", CurrentValue = true, Callback = function(v) Itoshi.Settings.Utility.AutoGenerator.AutoSkill = v end})
+TabGen:CreateToggle({Name = "Auto Wire Solver", CurrentValue = true, Callback = function(v) Itoshi.Settings.Utility.AutoGenerator.AutoWires = v end})
+TabGen:CreateToggle({Name = "Auto Heal", CurrentValue = true, Callback = function(v) Itoshi.Settings.Utility.AutoHeal.Enabled = v end})
 
 TabV:CreateToggle({Name = "ESP", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.ESP.Enabled = v end})
 TabV:CreateToggle({Name = "Fullbright", CurrentValue = false, Callback = function(v) Itoshi.Settings.Visuals.Fullbright = v end})
 
--- LOOPS
+-- // 9. LOOPS //
 RunService.RenderStepped:Connect(function()
     SecureCall(Combat.Update)
     SecureCall(GenSys.Update)
@@ -398,11 +442,10 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
+-- ESP Loop
 task.spawn(function()
     while true do
         task.wait(0.5)
-        SecureCall(Combat.RefreshTargets)
-        
         if Itoshi.Settings.Visuals.ESP.Enabled then
             for _, p in pairs(Players:GetPlayers()) do
                 if p ~= LocalPlayer and p.Character then
